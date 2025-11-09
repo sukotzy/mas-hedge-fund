@@ -39,8 +39,8 @@ ENV/
 .env.local
 
 # Data files
-data/
-*.csv
+# data/  # Uncommented to allow data folder
+# *.csv  # Uncommented to allow CSV files
 *.json.cache
 
 # Logs
@@ -57,4 +57,4 @@ poetry.lock
 
 # Others
 安装req.txt
-requirements0.txt
+# requirements0.txt  # Uncommented to allow this file
