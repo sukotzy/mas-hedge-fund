@@ -1,0 +1,8 @@
+[tool.black]
+line-length = 420
+target-version = ['py311']
+include = '\.pyi?$'
+
+[tool.isort]
+profile = "black"
+force_alphabetical_sort_within_sections = true
