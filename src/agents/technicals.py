@@ -1,6 +1,7 @@
 import math
 
 from langchain_core.messages import HumanMessage
+from src.schemas import Bet, MarketSignal
 
 from src.graph.state import AgentState, show_agent_reasoning
 from src.utils.api_key import get_api_key_from_state
@@ -104,38 +105,61 @@ def technical_analyst_agent(state: AgentState, agent_id: str = "technical_analys
         )
 
         # Generate detailed analysis report for this ticker
-        technical_analysis[ticker] = {
-            "signal": combined_signal["signal"],
-            "confidence": round(combined_signal["confidence"] * 100),
-            "reasoning": {
-                "trend_following": {
-                    "signal": trend_signals["signal"],
-                    "confidence": round(trend_signals["confidence"] * 100),
-                    "metrics": normalize_pandas(trend_signals["metrics"]),
-                },
-                "mean_reversion": {
-                    "signal": mean_reversion_signals["signal"],
-                    "confidence": round(mean_reversion_signals["confidence"] * 100),
-                    "metrics": normalize_pandas(mean_reversion_signals["metrics"]),
-                },
-                "momentum": {
-                    "signal": momentum_signals["signal"],
-                    "confidence": round(momentum_signals["confidence"] * 100),
-                    "metrics": normalize_pandas(momentum_signals["metrics"]),
-                },
-                "volatility": {
-                    "signal": volatility_signals["signal"],
-                    "confidence": round(volatility_signals["confidence"] * 100),
-                    "metrics": normalize_pandas(volatility_signals["metrics"]),
-                },
-                "statistical_arbitrage": {
-                    "signal": stat_arb_signals["signal"],
-                    "confidence": round(stat_arb_signals["confidence"] * 100),
-                    "metrics": normalize_pandas(stat_arb_signals["metrics"]),
-                },
+        # Determine MarketSignal
+        if combined_signal["signal"] == "bullish":
+            signal_enum = MarketSignal.BULLISH
+        elif combined_signal["signal"] == "bearish":
+            signal_enum = MarketSignal.BEARISH
+        else:
+            signal_enum = MarketSignal.NEUTRAL
+
+        # Get agent capital (default 100k)
+        agent_capital = data.get("agent_capital", {}).get(agent_id, {}).get("allocated_capital", 100000.0)
+        
+        # Calculate bet amount
+        confidence_score = combined_signal["confidence"] # Already 0-1 from weighted_signal_combination
+        bet_amount = agent_capital * 0.10 * confidence_score if signal_enum != MarketSignal.NEUTRAL else 0.0
+
+        # Create detailed reasoning structure
+        reasoning = {
+            "trend_following": {
+                "signal": trend_signals["signal"],
+                "confidence": 0 if pd.isna(trend_signals["confidence"]) else round(trend_signals["confidence"] * 100),
+                "metrics": normalize_pandas(trend_signals["metrics"]),
+            },
+            "mean_reversion": {
+                "signal": mean_reversion_signals["signal"],
+                "confidence": 0 if pd.isna(mean_reversion_signals["confidence"]) else round(mean_reversion_signals["confidence"] * 100),
+                "metrics": normalize_pandas(mean_reversion_signals["metrics"]),
+            },
+            "momentum": {
+                "signal": momentum_signals["signal"],
+                "confidence": 0 if pd.isna(momentum_signals["confidence"]) else round(momentum_signals["confidence"] * 100),
+                "metrics": normalize_pandas(momentum_signals["metrics"]),
+            },
+            "volatility": {
+                "signal": volatility_signals["signal"],
+                "confidence": round(volatility_signals["confidence"] * 100),
+                "metrics": normalize_pandas(volatility_signals["metrics"]),
+            },
+            "statistical_arbitrage": {
+                "signal": stat_arb_signals["signal"],
+                "confidence": round(stat_arb_signals["confidence"] * 100),
+                "metrics": normalize_pandas(stat_arb_signals["metrics"]),
             },
         }
-        progress.update_status(agent_id, ticker, "Done", analysis=json.dumps(technical_analysis, indent=4))
+
+        # Create Bet object
+        bet = Bet(
+            ticker=ticker,
+            direction=signal_enum,
+            amount=bet_amount,
+            conviction=confidence_score,
+            reasoning=json.dumps(reasoning)
+        )
+
+        technical_analysis[ticker] = bet.model_dump(mode='json')
+        progress.update_status(agent_id, ticker, "Done", analysis=bet.reasoning)
 
     # Create the technical analyst message
     message = HumanMessage(

@@ -1,4 +1,5 @@
 from __future__ import annotations
+from src.schemas import Bet, MarketSignal
 
 """Valuation Agent
 
@@ -26,6 +27,9 @@ def valuation_analyst_agent(state: AgentState, agent_id: str = "valuation_analys
     tickers = data["tickers"]
     api_key = get_api_key_from_state(state, "FINANCIAL_DATASETS_API_KEY")
     valuation_analysis: dict[str, dict] = {}
+
+    # Get agent capital, default to 100,000 if not set (for testing/transition)
+    agent_capital = data.get("agent_capital", {}).get(agent_id, {}).get("allocated_capital", 100000.0)
 
     for ticker in tickers:
         progress.update_status(agent_id, ticker, "Fetching financial data")
@@ -160,11 +164,23 @@ def valuation_analyst_agent(state: AgentState, agent_id: str = "valuation_analys
             v["weight"] * v["gap"] for v in method_values.values() if v["gap"] is not None
         ) / total_weight
 
-        signal = "bullish" if weighted_gap > 0.15 else "bearish" if weighted_gap < -0.15 else "neutral"
-        confidence = round(min(abs(weighted_gap) / 0.30 * 100, 100))
+        # Determine signal and conviction
+        if weighted_gap > 0.15:
+            signal = MarketSignal.BULLISH
+        elif weighted_gap < -0.15:
+            signal = MarketSignal.BEARISH
+        else:
+            signal = MarketSignal.NEUTRAL
+
+        confidence = min(abs(weighted_gap) / 0.30, 1.0) # Normalize to 0-1
+
+        # Calculate bet amount
+        # Simple strategy: bet size proportional to confidence * capital
+        # Max bet size = 10% of capital per ticker
+        bet_amount = agent_capital * 0.10 * confidence if signal != MarketSignal.NEUTRAL else 0.0
 
         # Enhanced reasoning with DCF scenario details
-        reasoning = {}
+        reasoning_details = {}
         for m, vals in method_values.items():
             if vals["value"] > 0:
                 base_details = (
@@ -182,7 +198,7 @@ def valuation_analyst_agent(state: AgentState, agent_id: str = "valuation_analys
                 else:
                     enhanced_details = base_details
                 
-                reasoning[f"{m}_analysis"] = {
+                reasoning_details[f"{m}_analysis"] = {
                     "signal": (
                         "bullish" if vals["gap"] and vals["gap"] > 0.15 else
                         "bearish" if vals["gap"] and vals["gap"] < -0.15 else "neutral"
@@ -192,7 +208,7 @@ def valuation_analyst_agent(state: AgentState, agent_id: str = "valuation_analys
         
         # Add overall DCF scenario summary if available
         if 'dcf_results' in locals():
-            reasoning["dcf_scenario_analysis"] = {
+            reasoning_details["dcf_scenario_analysis"] = {
                 "bear_case": f"${dcf_results['downside']:,.2f}",
                 "base_case": f"${dcf_results['scenarios']['base']:,.2f}",  
                 "bull_case": f"${dcf_results['upside']:,.2f}",
@@ -200,12 +216,17 @@ def valuation_analyst_agent(state: AgentState, agent_id: str = "valuation_analys
                 "fcf_periods_analyzed": len(fcf_history)
             }
 
-        valuation_analysis[ticker] = {
-            "signal": signal,
-            "confidence": confidence,
-            "reasoning": reasoning,
-        }
-        progress.update_status(agent_id, ticker, "Done", analysis=json.dumps(reasoning, indent=4))
+        # Create Bet object
+        bet = Bet(
+            ticker=ticker,
+            direction=signal,
+            amount=bet_amount,
+            conviction=confidence,
+            reasoning=json.dumps(reasoning_details) # Store detailed reasoning as string
+        )
+
+        valuation_analysis[ticker] = bet.model_dump(mode='json')
+        progress.update_status(agent_id, ticker, "Done", analysis=bet.reasoning)
 
     # ---- Emit message (for LLM tool chain) ----
     msg = HumanMessage(content=json.dumps(valuation_analysis), name=agent_id)

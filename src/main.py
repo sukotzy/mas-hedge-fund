@@ -7,6 +7,8 @@ from colorama import Fore, Style, init
 import questionary
 from src.agents.portfolio_manager import portfolio_management_agent
 from src.agents.risk_manager import risk_management_agent
+from src.agents.meta_manager import meta_manager_agent
+from src.market.betting_market import betting_market_node
 from src.graph.state import AgentState
 from src.utils.display import print_trading_output
 from src.utils.analysts import ANALYST_ORDER, get_analyst_nodes
@@ -57,6 +59,29 @@ def run_hedge_fund(
     progress.start()
 
     try:
+        # Load Backtest History if available
+        agent_capital = {}
+        try:
+            with open("backtest_history.json", "r") as f:
+                history = json.load(f)
+                if history:
+                    last_entry = history[-1]
+                    # Convert simple dict back to expected structure
+                    # History format: "agent_capital": {"AgentName": 10500.0, ...}
+                    # Expected format: "agent_capital": {"AgentName": {"allocated_capital": 10500.0, ...}}
+                    simple_capital = last_entry.get("agent_capital", {})
+                    for agent, cap in simple_capital.items():
+                        agent_capital[agent] = {
+                            "total_capital": cap, # Assuming total = allocated for now
+                            "allocated_capital": cap,
+                            "roi_history": []
+                        }
+                    print(f"{Fore.GREEN}Loaded agent capital from backtest history.{Style.RESET_ALL}")
+        except FileNotFoundError:
+            print(f"{Fore.YELLOW}No backtest history found. Starting with default capital.{Style.RESET_ALL}")
+        except Exception as e:
+            print(f"{Fore.RED}Error loading backtest history: {e}{Style.RESET_ALL}")
+
         # Build workflow (default to all analysts when none provided)
         workflow = create_workflow(selected_analysts if selected_analysts else None)
         agent = workflow.compile()
@@ -74,6 +99,7 @@ def run_hedge_fund(
                     "start_date": start_date,
                     "end_date": end_date,
                     "analyst_signals": {},
+                    "agent_capital": agent_capital,
                 },
                 "metadata": {
                     "show_reasoning": show_reasoning,
@@ -114,15 +140,21 @@ def create_workflow(selected_analysts=None):
         workflow.add_node(node_name, node_func)
         workflow.add_edge("start_node", node_name)
 
-    # Always add risk and portfolio management
+    # Add new nodes
+    workflow.add_node("betting_market", betting_market_node)
+    workflow.add_node("meta_manager", meta_manager_agent)
     workflow.add_node("risk_management_agent", risk_management_agent)
     workflow.add_node("portfolio_manager", portfolio_management_agent)
 
-    # Connect selected analysts to risk management
+    # Connect analysts to betting market
     for analyst_key in selected_analysts:
         node_name = analyst_nodes[analyst_key][0]
-        workflow.add_edge(node_name, "risk_management_agent")
+        workflow.add_edge(node_name, "betting_market")
 
+    # Sequential flow: Betting Market -> Meta Manager -> Risk Manager -> Portfolio Manager
+    # This ensures all data is available for the final decision
+    workflow.add_edge("betting_market", "meta_manager")
+    workflow.add_edge("meta_manager", "risk_management_agent")
     workflow.add_edge("risk_management_agent", "portfolio_manager")
     workflow.add_edge("portfolio_manager", END)
 

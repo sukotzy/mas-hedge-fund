@@ -1,4 +1,5 @@
 from langchain_core.messages import HumanMessage
+from src.schemas import Bet, MarketSignal
 from src.graph.state import AgentState, show_agent_reasoning
 from src.utils.api_key import get_api_key_from_state
 from src.utils.progress import progress
@@ -134,11 +135,31 @@ def fundamentals_analyst_agent(state: AgentState, agent_id: str = "fundamentals_
         total_signals = len(signals)
         confidence = round(max(bullish_signals, bearish_signals) / total_signals, 2) * 100
 
-        fundamental_analysis[ticker] = {
-            "signal": overall_signal,
-            "confidence": confidence,
-            "reasoning": reasoning,
-        }
+        # Determine MarketSignal
+        if overall_signal == "bullish":
+            signal_enum = MarketSignal.BULLISH
+        elif overall_signal == "bearish":
+            signal_enum = MarketSignal.BEARISH
+        else:
+            signal_enum = MarketSignal.NEUTRAL
+
+        # Get agent capital (default 100k)
+        agent_capital = data.get("agent_capital", {}).get(agent_id, {}).get("allocated_capital", 100000.0)
+        
+        # Calculate bet amount
+        confidence_score = confidence / 100.0
+        bet_amount = agent_capital * 0.10 * confidence_score if signal_enum != MarketSignal.NEUTRAL else 0.0
+
+        # Create Bet object
+        bet = Bet(
+            ticker=ticker,
+            direction=signal_enum,
+            amount=bet_amount,
+            conviction=confidence_score,
+            reasoning=json.dumps(reasoning)
+        )
+
+        fundamental_analysis[ticker] = bet.model_dump(mode='json')
 
         progress.update_status(agent_id, ticker, "Done", analysis=json.dumps(reasoning, indent=4))
 
