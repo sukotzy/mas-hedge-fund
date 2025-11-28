@@ -26,6 +26,7 @@ venv/
 env/
 ENV/
 .venv
+hf2/
 
 # IDEs
 .vscode/
@@ -60,4 +61,4 @@ poetry.lock
 # requirements0.txt  # Uncommented to allow this file
 backtest_history.json
 
-hf2/
+
