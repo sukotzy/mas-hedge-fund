@@ -12,12 +12,14 @@ langchain-gigachat==0.3.12
 langchain-xai==0.2.5
 langgraph==0.2.56
 
-# DashScope —— 关键修改 ↓
-langchain-community==0.3.28   # ✅ 兼容 langchain 0.3.27
+# DashScope - Key Modification
+langchain-community==0.3.28   # Compatible with langchain 0.3.27
 dashscope==1.24.9
 
 # Data & Utils
 pandas>=2.1.0
+pyarrow>=14.0.0
+duckdb>=0.9.0
 numpy>=1.24.0
 python-dotenv==1.0.0
 matplotlib>=3.9.2
@@ -35,3 +37,6 @@ sqlalchemy>=2.0.22,<2.1.0
 alembic>=1.12.0,<2.0.0
 
 urllib3>=2.0.0,<3.0.0
+
+# Data Sources
+wrds>=3.1.0

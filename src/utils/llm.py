@@ -58,8 +58,19 @@ def call_llm(
     # Call the LLM with retries
     for attempt in range(max_retries):
         try:
+            # For non-JSON support models, append formatting instructions
+            current_prompt = prompt
+            if model_info and not model_info.has_json_mode():
+                schema = pydantic_model.model_json_schema()
+                current_prompt = (
+                    f"{prompt}\n\n"
+                    f"IMPORTANT: You MUST return the result as a raw JSON object matching this schema:\n"
+                    f"{json.dumps(schema, indent=2)}\n"
+                    f"Do not include any text other than the JSON object. Wrap the JSON in ```json ... ``` blocks."
+                )
+
             # Call the LLM
-            result = llm.invoke(prompt)
+            result = llm.invoke(current_prompt)
 
             # For non-JSON support models, we need to extract and parse the JSON manually
             if model_info and not model_info.has_json_mode():
@@ -72,7 +83,12 @@ def call_llm(
         except Exception as e:
             if agent_name:
                 progress.update_status(agent_name, None, f"Error - retry {attempt + 1}/{max_retries}")
-
+                # Debug print to see what actually failed
+                if attempt == 0: 
+                    try:
+                        print(f"\n[DEBUG] LLM Raw Content First 500 chars: {result.content[:500] if 'result' in locals() else 'No result'}\n")
+                    except: pass
+            
             if attempt == max_retries - 1:
                 print(f"Error in LLM call after {max_retries} attempts: {e}")
                 # Use default_factory if provided, otherwise create a basic default
@@ -88,14 +104,26 @@ def create_default_response(model_class: type[BaseModel]) -> BaseModel:
     """Creates a safe default response based on the model's fields."""
     default_values = {}
     for field_name, field in model_class.model_fields.items():
+        # 1. Use existing default if available
+        if field.default is not None and field.default.__class__.__name__ != 'PydanticUndefinedType':
+             default_values[field_name] = field.default
+             continue
+        if field.default_factory is not None:
+             default_values[field_name] = field.default_factory()
+             continue
+
+        # 2. Fallback: Invent a value based on type
         if field.annotation == str:
             default_values[field_name] = "Error in analysis, using default"
         elif field.annotation == float:
             default_values[field_name] = 0.0
         elif field.annotation == int:
             default_values[field_name] = 0
-        elif hasattr(field.annotation, "__origin__") and field.annotation.__origin__ == dict:
-            default_values[field_name] = {}
+        elif hasattr(field.annotation, "__origin__"):
+            if field.annotation.__origin__ == dict:
+                default_values[field_name] = {}
+            elif field.annotation.__origin__ == list:
+                 default_values[field_name] = []
         else:
             # For other types (like Literal), try to use the first allowed value
             if hasattr(field.annotation, "__args__"):

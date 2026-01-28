@@ -1,0 +1,274 @@
+
+from langchain_core.messages import HumanMessage
+from src.schemas import PortfolioDecision, Allocation
+from src.graph.state import AgentState, show_agent_reasoning
+from src.tools.api import get_company_news
+from src.utils.api_key import get_api_key_from_state
+from src.utils.llm import call_llm
+from src.utils.progress import progress
+import json
+import pandas as pd
+from pydantic import BaseModel, Field
+from typing import Literal, List
+from datetime import datetime, timedelta
+
+# Re-use the Sentiment schema from the original agent logic
+class Sentiment(BaseModel):
+    sentiment: Literal["positive", "negative", "neutral"] = "neutral"
+    confidence: int = Field(description="Confidence 0-100")
+
+def news_sentiment_allocator(state: AgentState, agent_id: str = "news_sentiment_allocator"):
+    """
+    Batch Agent: Analyzes news for a UNIVERSE of tickers and allocates $100 capital.
+    
+    Step 1: Analyze events for each ticker individually (preserving original logic).
+    Step 2: Make a relative value judgment to allocate capital.
+    """
+    data = state.get("data", {})
+    end_date = data.get("end_date")
+    tickers = data.get("tickers")
+    api_key = get_api_key_from_state(state, "FINANCIAL_DATASETS_API_KEY")
+    
+    # Store intermediate analysis to feed into the Allocator
+    ticker_summaries = {} 
+
+    # --- PHASE 1: INDIVIDUAL ANALYSIS (Dual Mode) ---
+    # mode="individual": 5 calls per ticker (Original)
+    # mode="batch": 1 call per ticker (Optimized)
+    
+    # Check for mode override in state or default to individual for now (unless user wants batch)
+    analysis_mode = state.get("metadata", {}).get("allocator_mode", "individual")  # Default to "individual" for safety/preservation
+    
+    if analysis_mode == "global_batch":
+        # Global Batch: One shot analysis + allocation
+        result = _analyze_and_allocate_global(tickers, end_date, api_key, agent_id, state)
+        
+        # Helper to format output same as others
+        message = HumanMessage(content=json.dumps(result), name=agent_id)
+        if state.get("metadata", {}).get("show_reasoning"):
+            show_agent_reasoning(result, "News Sentiment Allocator (Global)")
+        if "allocator_decisions" not in state["data"]:
+            state["data"]["allocator_decisions"] = {}
+        state["data"]["allocator_decisions"][agent_id] = result
+        progress.update_status(agent_id, None, "Done")
+        return {"messages": [message], "data": state["data"]}
+        
+    elif analysis_mode == "batch":
+        ticker_summaries = _analyze_events_batch(tickers, end_date, api_key, agent_id, state)
+    else:
+        ticker_summaries = _analyze_events_individual(tickers, end_date, api_key, agent_id, state)
+
+    # --- PHASE 2: GLOBAL ALLOCATION (The New Logic) ---
+    progress.update_status(agent_id, "ALL", "Calculating Portfolio Allocation")
+    
+    # Construct the Universe View
+    universe_context = "\n".join([f"Stock {t}: {s}" for t, s in ticker_summaries.items()])
+    
+    allocation_prompt = (
+        f"You are a Betting Agent with $100 capital. Your objective is to maximize your wealth through accurate predictions.\n"
+        f"Analyze the following universe of stocks based on their recent corporate events (Last 7 Days).\n"
+        f"Your decisions have financial consequences: accurate bets increase your capital, while incorrect bets reduce it.\n"
+        f"Allocate your capital based on your conviction in the signal strength.\n\n"
+        f"{universe_context}\n\n"
+        f"Constraints:\n"
+        f"1. You may allocate to 'CASH' if your conviction is low.\n"
+        f"2. Total Amount (Stocks + CASH) must equal 100.0.\n"
+        f"3. Assign a Direction (up/down/neutral) for stocks. For CASH, direction is 'neutral'.\n"
+    )
+    
+    # Call LLM for the final decision
+    decision = call_llm(allocation_prompt, PortfolioDecision, agent_name=agent_id, state=state)
+    
+    # Normalize if needed (sanity check)
+    total_alloc = sum(a.amount for a in decision.allocations)
+    if abs(total_alloc - 100.0) > 0.1:
+        # Simple normalization if LLM math is slightly off
+        for a in decision.allocations:
+            a.amount = (a.amount / total_alloc) * 100.0
+            
+    # Output
+    result = {
+        "allocations": [a.model_dump() for a in decision.allocations],
+        "metrics": {"original_total": total_alloc}
+    }
+    
+    message = HumanMessage(
+        content=json.dumps(result),
+        name=agent_id,
+    )
+    
+    # Optional: Display output
+    if state.get("metadata", {}).get("show_reasoning"):
+        show_agent_reasoning(result, "News Sentiment Allocator")
+
+    # Store in a new key "allocator_decisions" to avoid overwriting standard signals
+    if "allocator_decisions" not in state["data"]:
+        state["data"]["allocator_decisions"] = {}
+    state["data"]["allocator_decisions"][agent_id] = result
+
+    progress.update_status(agent_id, None, "Done")
+    
+    return {
+        "messages": [message],
+        "data": state["data"]
+    }
+
+def _analyze_events_individual(tickers, end_date, api_key, agent_id, state):
+    """Original Logic: Analyze each event separately."""
+    ticker_summaries = {}
+    for ticker in tickers:
+        progress.update_status(agent_id, ticker, "Fetching KeyDev events (Individual)")
+        print(f"  [NewsAllocator] Analyzing {ticker} for {end_date} (Individual)...") 
+        company_news = get_company_news(ticker, end_date, limit=10, api_key=api_key)
+        
+        if not company_news:
+            ticker_summaries[ticker] = "No recent corporate events found."
+            continue
+
+        valid_events = []
+        for news in company_news[:5]: # Analyze up to 5 events
+            prompt = (
+                f"You are a hedge fund analyst specializing in Event-Driven strategies. "
+                f"Analyze the following Corporate Event for stock {ticker}.\n\n"
+                f"Event Context: {news.source} (KeyDev Event Type)\n"
+                f"Headline: {news.title}\n\n"
+                f"Determine if this event is FUNDAMENTALLY 'positive' (bullish), 'negative' (bearish), "
+                f"or 'neutral' for the stock price.\n"
+                f"Also provide a confidence score (0-100).\n"
+            )
+            try:
+                response = call_llm(prompt, Sentiment, agent_name=agent_id, state=state)
+                valid_events.append({
+                    "headline": news.title,
+                    "type": news.source,
+                    "sentiment": response.sentiment,
+                    "confidence": response.confidence
+                })
+            except Exception as e:
+                print(f"Error analyzing event for {ticker}: {e}")
+        
+        if valid_events:
+            bullish_count = sum(1 for e in valid_events if e["sentiment"] == "positive")
+            # Construct summary string
+            summary = (
+                f"Analyzed {len(valid_events)} events. "
+                f"Bullish count: {bullish_count}. "
+                f"Top Event: {valid_events[0]['headline']} ({valid_events[0]['sentiment']})"
+            )
+            ticker_summaries[ticker] = summary
+        else:
+            ticker_summaries[ticker] = "Events found but analysis failed or returned neutral."
+    return ticker_summaries
+
+def _analyze_events_batch(tickers, end_date, api_key, agent_id, state):
+    """Optimized Logic: 1 LLM Call per Ticker."""
+    ticker_summaries = {}
+    
+    # Calculate start date (7 days lookback)
+    dt_end = datetime.strptime(end_date, "%Y-%m-%d")
+    dt_start = dt_end - timedelta(days=7)
+    start_date = dt_start.strftime("%Y-%m-%d")
+
+    # Define a Batch Summary Schema locally
+    class BatchSentiment(BaseModel):
+        signal: Literal["bullish", "bearish", "neutral"] = Field(default="neutral", description="Overall signal")
+        confidence: int = Field(default=0, description="Confidence score 0-100")
+        summary: str = Field(default="Analysis failed or no events.", description="Synthesized summary of all events")
+
+    for ticker in tickers:
+        progress.update_status(agent_id, ticker, "Fetching KeyDev events (Batch)")
+        print(f"  [NewsAllocator] Analyzing {ticker} for {end_date} (Batch, 7-day lookback)...")
+        # Pass start_date to filter strict window
+        company_news = get_company_news(ticker, end_date, start_date=start_date, limit=10, api_key=api_key)
+        
+        events_text = ""
+        if not company_news:
+            events_text = "No significant corporate events found in the last 7 days."
+        else:
+            # Format all events into one block
+            events_text = "\n".join([f"- {n.date}: {n.title} (Source: {n.source})" for n in company_news[:5]])
+        
+        prompt = (
+            f"You are an Event-Driven Analyst. Review recent events for {ticker} (Last 7 Days) and provide a signal.\n\n"
+            f"{events_text}\n\n"
+            f"Is the aggregate impact Bullish, Bearish, or Neutral?\n"
+            f"If 'No events found', decide if silence is neutral or meaningful (usually neutral).\n"
+            f"Provide a brief summary reasoning."
+        )
+        
+        try:
+            response = call_llm(prompt, BatchSentiment, agent_id, state)
+            ticker_summaries[ticker] = f"Signal: {response.signal} ({response.confidence}%). {response.summary}"
+        except Exception as e:
+            print(f"Error in batch analysis for {ticker}: {e}")
+            ticker_summaries[ticker] = "Error in batch analysis."
+            
+    return ticker_summaries
+
+def _analyze_and_allocate_global(tickers, end_date, api_key, agent_id, state):
+    """Global Batch Logic: Fetch all data, then 1 LLM Call for Decision."""
+    progress.update_status(agent_id, "ALL", "Fetching Universe Data (Global Batch)")
+    
+    # Calculate start date (7 days lookback)
+    dt_end = datetime.strptime(end_date, "%Y-%m-%d")
+    dt_start = dt_end - timedelta(days=7)
+    start_date = dt_start.strftime("%Y-%m-%d")
+    
+    universe_content = []
+    
+    for ticker in tickers:
+        # Pass start_date
+        company_news = get_company_news(ticker, end_date, start_date=start_date, limit=5, api_key=api_key)
+        if not company_news:
+            universe_content.append(f"Stock {ticker}: No significant corporate events in the last 7 days.")
+            continue
+            
+        events_text = "\\n".join([f"- {n.date}: {n.title}" for n in company_news])
+        universe_content.append(f"Stock {ticker} Events (Last 7 Days):\\n{events_text}")
+
+    full_context = "\\n\\n".join(universe_content)
+    
+    # Select Prompt based on metadata (A/B Testing)
+    prompt_version = state.get("metadata", {}).get("prompt_version", "wealth")
+    
+    if prompt_version == "standard":
+        # Control Group: Original Prompt
+        prompt = (
+            f"You are a Betting Agent with $100 capital. "
+            f"Analyze the following universe of stocks based on their recent corporate events (Last 7 Days).\\n"
+            f"You must allocate capital across these assets (plus 'CASH') to maximize your betting return.\\n\\n"
+            f"{full_context}\\n\\n"
+            f"Constraints:\\n"
+            f"1. You may allocate to 'CASH' if your conviction is low.\\n"
+            f"2. Total Amount (Stocks + CASH) must equal 100.0.\\n"
+            f"3. Assign a Direction (up/down/neutral) for stocks. For CASH, direction is 'neutral'.\\n"
+            f"4. Even if there are NO EVENTS for a stock, you must decide a bet (usually Neutral, but your choice based on market context/silence).\\n"
+        )
+    else:
+        # Variant Group: Wealth Consequence Prompt (Default)
+        prompt = (
+            f"You are a Betting Agent with $100 capital. Your objective is to maximize your wealth through accurate predictions.\\n"
+            f"Analyze the following universe of stocks based on their recent corporate events (Last 7 Days).\\n"
+            f"Your decisions have financial consequences: accurate bets increase your capital, while incorrect bets reduce it.\\n"
+            f"Allocate your capital based on your conviction in the signal strength.\\n\\n"
+            f"{full_context}\\n\\n"
+            f"Constraints:\\n"
+            f"1. You may allocate to 'CASH' if your conviction is low.\\n"
+            f"2. Total Amount (Stocks + CASH) must equal 100.0.\\n"
+            f"3. Assign a Direction (up/down/neutral) for stocks. For CASH, direction is 'neutral'.\\n"
+            f"4. Even if there are NO EVENTS for a stock, you must decide a bet (usually Neutral, but your choice based on market context/silence).\\n"
+        )
+    
+    # Call LLM
+    decision = call_llm(prompt, PortfolioDecision, agent_name=agent_id, state=state)
+    
+    # Normalize
+    total_alloc = sum(a.amount for a in decision.allocations)
+    if abs(total_alloc - 100.0) > 0.1 and total_alloc > 0:
+        for a in decision.allocations:
+            a.amount = (a.amount / total_alloc) * 100.0
+            
+    return {
+        "allocations": [a.model_dump() for a in decision.allocations],
+        "metrics": {"original_total": total_alloc}
+    }

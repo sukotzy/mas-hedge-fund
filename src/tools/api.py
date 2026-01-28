@@ -5,7 +5,7 @@ import requests
 import time
 
 from src.data.cache import get_cache
-from src.data.local_loader import get_local_loader
+from src.data.loader import LocalDataLoader, get_local_loader
 from src.data.models import (
     CompanyNews,
     CompanyNewsResponse,

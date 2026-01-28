@@ -15,7 +15,22 @@ class Bet(BaseModel):
 
 class AgentCapital(BaseModel):
     agent_name: str
-    total_capital: float
-    allocated_capital: float = 0.0
-    private_capital: float = 0.0
+    allocated_capital: float = 0.0  # Kept for backwards compatibility, represents 'external'
+    internal_capital: float = 0.0   # Renamed from private_capital
+    external_capital: float = 0.0   # Explicit external capital
     roi_history: list[float] = Field(default_factory=list)
+
+    @property
+    def total_capital(self) -> float:
+        return self.internal_capital + self.external_capital
+
+from typing import List, Literal
+class Allocation(BaseModel):
+    ticker: str
+    direction: Literal["up", "down", "neutral"]
+    amount: float = Field(description="Capital allocated (0-100)")
+    reasoning: str
+
+class PortfolioDecision(BaseModel):
+    allocations: List[Allocation]
+    # Implicit Constraint: sum(a.amount for a in allocations) == 100.0

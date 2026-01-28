@@ -133,13 +133,23 @@ def run_backtest(
         previous_prices = current_prices
         
         # Track Total Capital
-        total_allocated = sum(c["allocated_capital"] for c in agent_capital.values())
-        print(f"Total Agent Capital: ${total_allocated:,.2f}")
+        total_external = sum(c.get("external_capital", c.get("allocated_capital", 0)) for c in agent_capital.values())
+        total_internal = sum(c.get("internal_capital", 0) for c in agent_capital.values())
+        total_combined = total_external + total_internal
+        
+        print(f"Total Agent Capital: ${total_combined:,.2f} (Ext: ${total_external:,.2f} | Int: ${total_internal:,.2f})")
         
         history.append({
             "date": date_str,
-            "total_capital": total_allocated,
-            "agent_capital": {k: v["allocated_capital"] for k, v in agent_capital.items()}
+            "total_capital": total_combined,
+            "agent_capital": {
+                k: {
+                    "allocated_capital": v.get("allocated_capital", 0),
+                    "external_capital": v.get("external_capital", 0),
+                    "internal_capital": v.get("internal_capital", 0)
+                } 
+                for k, v in agent_capital.items()
+            }
         })
         
         current_date += timedelta(days=1)

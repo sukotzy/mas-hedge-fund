@@ -1,6 +1,6 @@
 # Data Guide for MAS Hedge Fund
 
-This document explains the data requirements for the Multi-Agent System (MAS) Hedge Fund and how to generate sample data for backtesting.
+This document explains the data requirements for the Multi-Agent System (MAS) Hedge Fund, covering both the Production (WRDS) pipeline and the Legacy (CSV) testing mode.
 
 ## 1. System Logic: Backtest Accumulation
 
@@ -11,70 +11,91 @@ This document explains the data requirements for the Multi-Agent System (MAS) He
 The backtest works as follows:
 1.  **Initialization (Day 0)**: The system starts with an initial capital allocation (e.g., $100,000 total, split among agents).
 2.  **Daily Loop (10-20 to 10-25)**:
-    *   **Betting**: Agents place bets based on data available up to that day.
-    *   **Settlement**: At the end of each day (or start of next), bets are settled against market price movements.
+    *   **Betting**: Agents place bets based on data available *up to* that day.
+    *   **Settlement**: At the end of each day, bets are settled against market price movements.
     *   **Accumulation**: Gains are added to the agent's capital, and losses are deducted.
-3.  **Carry-Over**: The updated capital balance is carried over to the next day.
-4.  **Final State (10-25)**: On the last day, the capital shown for each agent is the cumulative result of their performance from the start date (10-20) through the end date (10-25).
+3.  **Final State (10-25)**: On the last day, the capital shown is the cumulative result of performance.
 
-## 2. Data Requirements
+---
 
-Each agent type requires specific data to function. The system uses a `LocalDataLoader` (in `src/data/local_loader.py`) to read CSV files from the `data/` directory when `USE_LOCAL_DATA=true`.
+## 2. WRDS Production Data (Parquet)
 
-### Directory Structure
+This is the primary data source for high-fidelity backtesting. Data is downloaded from WRDS (Wharton Research Data Services) and stored in `data/raw/` as Parquet files.
+
+### 2.1 Constituents (`sp500_constituents.parquet`)
+*   **Source:** `crsp.msp500list`
+*   **Usage:** Defines the investment universe (S&P 500 historical members).
+*   **Key Columns:** `permno`, `start`, `ending`, `ticker`.
+
+### 2.2 Prices & Volume (`sp500_ohlcv.parquet`)
+*   **Source:** CRSP Daily Stock File (`crsp.dsf`)
+*   **Frequency:** **Daily**
+*   **Bias Prevention:** Point-in-time daily market data.
+*   **Key Columns:** 
+    *   `date`: Trading date
+    *   `permno`: Unique CRSP identifier
+    *   `prc`: Closing Price
+    *   `vol`: Volume
+    *   `openprc`, `askhi`, `bidlo`: OHLC components
+
+### 2.3 Financial Ratios (`sp500_ratios_firm_ratio.parquet`)
+*   **Source:** WRDS Financial Ratios Suite (`wrdsapps.firm_ratio`)
+*   **Frequency:** **Monthly** (e.g., 2016-01-31, 2016-02-29).
+*   **Bias Prevention:** Uses **`public_date`** (the date the data became public knowledge), NOT the fiscal reference date. This ensures no look-ahead bias.
+*   **Key Columns:**
+    *   `date` (mapped from `public_date`): The effective date for trading.
+    *   `pe_exi`: P/E Ratio (Excl. Extraordinary Items)
+    *   `ptb`: Price-to-Book Ratio
+
+### 2.4 Deep Fundamentals (`comp_fundq.parquet`)
+*   **Source:** Compustat Quarterly Fundamentals (`comp.fundq`)
+*   **Frequency:** **Quarterly**
+*   **Bias Prevention:** STRICTLY uses **`rdq` (Release Date Quarterly)**. This is the exact date the 10-Q/10-K was filed with the SEC.
+    *   *Note:* If a fiscal quarter ends on March 31 but the report is filed on April 25, the data becomes available to agents ONLY on April 25.
+*   **Key Columns:**
+    *   **Timestamp:** `rdq` (used as index), `datadate` (fiscal refernece).
+    *   **Raw Items:** `niq` (Net Income), `revtq` (Revenue), `atq` (Total Assets), `seqq` (Shareholder Equity), `dlttq` (Long-term Debt).
+    *   **Calculated Metrics:** 
+        *   `return_on_equity` (ROE)
+        *   `net_margin`
+        *   `operating_margin`
+        *   `current_ratio`
+        *   `debt_to_equity`
+
+### 2.5 Metadata Linkage (`ccm_links.parquet`)
+*   **Source:** CRSP-Compustat Merged Link Table
+*   **Usage:** Maps CRSP `permno` (for Prices) to Compustat `gvkey` (for Fundamentals).
+
+---
+
+## 3. Data Ingestion Commands
+
+### To Download WRDS Data:
+```bash
+python src/data_ingestion/wrds_downloader.py --start-date 2015-01-01 --end-date 2024-12-31
+```
+*Requires `WRDS_USERNAME` in `.env` and `pgpass.conf` logic.*
+
+### To Generate Mock Data (Testing):
+```bash
+python generate_sample_data.py
+```
+
+---
+
+## 4. Legacy/Testing Data (CSV Mode)
+
+Used for local testing without WRDS access. Files are stored in `data/`.
+
+#### 4.1 Directory Structure
 ```
 data/
-├── prices/              # Historical price data (OHLCV)
-├── financial_metrics/   # Fundamental ratios (PE, Margins, etc.)
-├── news/                # News headlines and sentiment
-└── insider_trades/      # Insider transaction records
+├── prices/              # CSVs: time, ticker, open, close...
+├── financial_metrics/   # CSVs: pe_ratio, price_to_book...
+├── news/                # CSVs: title, sentiment...
+└── insider_trades/      # CSVs: transaction details...
 ```
 
-### Data Formats
-
-#### 1. Prices (`data/prices/{TICKER}.csv`)
-Required by: **Technical Analyst**, **Valuation Analyst**, **Risk Manager**
-Format:
-```csv
-time,ticker,open,close,high,low,volume
-2024-10-01T00:00:00Z,AAPL,150.25,152.30,153.10,149.80,50000000
-...
-```
-
-#### 2. Financial Metrics (`data/financial_metrics/{TICKER}.csv`)
-Required by: **Fundamental Analyst**, **Valuation Analyst**, **Warren Buffett**
-Format:
-```csv
-ticker,report_period,market_cap,pe_ratio,price_to_book_ratio,return_on_equity,net_margin,operating_margin,revenue_growth,earnings_growth,current_ratio,debt_to_equity_ratio
-AAPL,2024-09-30,2500000000000,28.5,45.2,0.45,0.25,0.30,0.10,0.12,1.2,0.8
-...
-```
-
-#### 3. News (`data/news/{TICKER}.csv`)
-Required by: **Sentiment Analyst**, **News Sentiment Analyst**
-Format:
-```csv
-ticker,date,title,text,source,url
-AAPL,2024-10-01T10:00:00Z,Apple releases new iPhone,Full text...,Reuters,https://...
-...
-```
-
-#### 4. Insider Trades (`data/insider_trades/{TICKER}.csv`)
-Required by: **Fundamental Analyst** (optional signal)
-Format:
-```csv
-ticker,filing_date,transaction_date,owner_name,is_director,is_officer,shares,transaction_type
-AAPL,2024-09-30,2024-09-28,Tim Cook,True,True,10000,Sale
-...
-```
-
-## 3. Generating Sample Data
-
-A script `generate_sample_data.py` has been created to generate realistic mock data for `AAPL`, `MSFT`, and `GOOGL` for the period `2023-01-01` to `2024-12-31`.
-
-To run it:
-```bash
-.\hf2\Scripts\python.exe generate_sample_data.py
-```
-
-This will populate the `data/` directory with the necessary CSV files to run the backtest locally.
+#### 4.2 Format Examples
+*   **Prices**: `time,ticker,open,close,high,low,volume`
+*   **Metrics**: `ticker,report_period,pe_ratio,price_to_book_ratio...`
