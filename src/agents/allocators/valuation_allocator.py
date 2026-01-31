@@ -88,19 +88,27 @@ def valuation_allocator(state: AgentState, agent_id: str = "valuation_allocator"
         )
         dcf_val = dcf_results['expected_value']
         
+        # 4. Residual Income Model
+        rim_val = calculate_residual_income_value(
+            market_cap=m.market_cap,
+            net_income=getattr(li_curr, 'net_income', 0),
+            price_to_book_ratio=m.price_to_book_ratio,
+            book_value_growth=m.book_value_growth or 0.03
+        )
+
         # --- Gap Analysis ---
         market_cap = get_market_cap(ticker, end_date, api_key=api_key) or 1
         
         # Calculate Weighted Intrinsic Value
-        # (Weighting: DCF 40%, Owner 40%, EV 20%)
-        intrinsic_value = (dcf_val * 0.4) + (owner_val * 0.4) + (ev_val * 0.2)
+        # Weighting aligned with Valuation Analyst: DCF 35%, Owner 35%, EV 20%, RIM 10%
+        intrinsic_value = (dcf_val * 0.35) + (owner_val * 0.35) + (ev_val * 0.20) + (rim_val * 0.10)
         gap = (intrinsic_value - market_cap) / market_cap
         
         summary = (
             f"Stock {ticker}:\n"
             f"  - Price (Market Cap): ${market_cap:,.0f}\n"
             f"  - Intrinsic Value: ${intrinsic_value:,.0f} (Gap: {gap:+.1%})\n"
-            f"  - Breakdown: DCF ${dcf_val:,.0f} | Owner Earnings ${owner_val:,.0f} | EV/EBITDA Implied ${ev_val:,.0f}\n"
+            f"  - Breakdown: DCF ${dcf_val:,.0f} | Owner Earnings ${owner_val:,.0f} | EV/EBITDA Implied ${ev_val:,.0f} | Residual Income ${rim_val:,.0f}\n"
             f"  - Key Inputs: WACC {wacc:.1%} | Exp. Growth {(m.earnings_growth or 0):.1%}"
         )
         universe_summaries.append(summary)

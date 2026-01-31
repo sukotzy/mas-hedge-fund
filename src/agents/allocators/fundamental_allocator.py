@@ -40,8 +40,8 @@ def fundamental_allocator(state: AgentState, agent_id: str = "fundamental_alloca
         summary = (
             f"Stock {ticker}:\n"
             f"  - Profitability: ROE {(m.return_on_equity or 0):.1%} | Net Margin {(m.net_margin or 0):.1%} | Op Margin {(m.operating_margin or 0):.1%}\n"
-            f"  - Growth: Rev Growth {(m.revenue_growth or 0):.1%} | Earnings Growth {(m.earnings_growth or 0):.1%}\n"
-            f"  - Health: D/E {(m.debt_to_equity or 0):.2f} | Current Ratio {(m.current_ratio or 0):.2f}\n"
+            f"  - Growth: Rev Growth {(m.revenue_growth or 0):.1%} | Earnings Growth {(m.earnings_growth or 0):.1%} | Book Value Growth {(m.book_value_growth or 0):.1%}\n"
+            f"  - Health: D/E {(m.debt_to_equity or 0):.2f} | Current Ratio {(m.current_ratio or 0):.2f} | FCF/Share ${(m.free_cash_flow_per_share or 0):.2f} vs EPS ${(m.earnings_per_share or 0):.2f}\n"
             f"  - Valuation: P/E {(m.price_to_earnings_ratio or 0):.1f} | P/B {(m.price_to_book_ratio or 0):.1f} | P/S {(m.price_to_sales_ratio or 0):.1f}"
         )
         universe_summaries.append(summary)

@@ -14,7 +14,8 @@ from src.agents.technicals import (
     calculate_trend_signals,
     calculate_mean_reversion_signals,
     calculate_momentum_signals,
-    calculate_volatility_signals
+    calculate_volatility_signals,
+    calculate_stat_arb_signals
 )
 
 def technical_allocator(state: AgentState, agent_id: str = "technical_allocator"):
@@ -48,6 +49,7 @@ def technical_allocator(state: AgentState, agent_id: str = "technical_allocator"
         reversion = calculate_mean_reversion_signals(df)
         momentum = calculate_momentum_signals(df)
         vol = calculate_volatility_signals(df)
+        stat_arb = calculate_stat_arb_signals(df)
         
         # Format Summary
         summary = (
@@ -55,7 +57,8 @@ def technical_allocator(state: AgentState, agent_id: str = "technical_allocator"
             f"  - Trend: {trend['signal'].upper()} (Confidence {trend['confidence']:.0%})\n"
             f"  - Momentum: {momentum['signal'].upper()} (Confidence {momentum['confidence']:.0%})\n"
             f"  - Mean Reversion: {reversion['signal'].upper()} (RSI: {reversion['metrics']['rsi_14']:.1f})\n"
-            f"  - Volatility: {vol['signal'].upper()} (Context: {vol['metrics']['volatility_regime']:.2f}x Normal)"
+            f"  - Volatility: {vol['signal'].upper()} (Context: {vol['metrics']['volatility_regime']:.2f}x Normal)\n"
+            f"  - Stat Arb: {stat_arb['signal'].upper()} (Skew: {stat_arb['metrics']['skewness']:.2f}, Hurst: {stat_arb['metrics']['hurst_exponent']:.2f})"
         )
         universe_summaries.append(summary)
 
