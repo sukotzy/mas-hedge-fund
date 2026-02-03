@@ -99,74 +99,148 @@ class CandidateSelector:
         styles = styles.fillna(0)
         return styles
 
+    def calculate_panic_score(self, prices: pd.DataFrame, volume: pd.DataFrame) -> pd.Series:
+        """
+        Calculate Panic Score based on Price Crash and Volume Spike.
+        Formula:
+          VolRatio = Volume_t / Mean(Volume_{t-1...t-20})
+          Ret = (Close_t - Close_{t-1}) / Close_{t-1}
+          If Ret < 0: PanicScore = VolRatio * |Ret| * 100
+          Else: 0
+        """
+        # Ensure we have enough data (21 days: 20 for mean, 1 for current)
+        if len(prices) < 21:
+            return pd.Series(0, index=prices.columns)
+            
+        # Current Day (t)
+        p_t = prices.iloc[-1]
+        p_prev = prices.iloc[-2]
+        v_t = volume.iloc[-1]
+        
+        # Moving Average Volume (t-1 to t-20)
+        # rolling mean excluding t?
+        # "Mean(Volume_{t-1...t-20})"
+        # slice last 21 days: [t-20, ..., t]
+        # we want mean of [t-20 ... t-1]
+        recent_vol = volume.iloc[-21:-1]
+        v_avg = recent_vol.mean()
+        
+        # Avoid division by zero
+        v_avg = v_avg.replace(0, np.nan).fillna(1.0) # If avg vol is 0, VolRatio becomes v_t/1
+        
+        vol_ratio = v_t / v_avg
+        
+        # Returns
+        ret = (p_t - p_prev) / p_prev
+        
+        # Calculate Score
+        # Vectorized
+        panic_scores = pd.Series(0.0, index=prices.columns)
+        
+        mask_crash = ret < 0
+        
+        # Score = VolRatio * |Ret| * 100
+        scores = vol_ratio * ret.abs() * 100
+        
+        panic_scores[mask_crash] = scores[mask_crash]
+        
+        # Sanity check: If Volume data was missing (0), v_t might be 0 -> score 0. Correct.
+        return panic_scores.fillna(0)
+
     def select_candidates(self, 
                          clusters: Dict[int, List[str]], 
                          styles: pd.DataFrame, 
                          anomaly_scores: pd.Series,
+                         panic_scores: pd.Series,
+                         degrees: pd.Series,
                          market_regime: str,
                          include_hint: bool = True) -> List[Dict]:
         """
-        Select 1 representative from each cluster.
-        Logic:
-        - If Cluster has High Anomaly Score -> Short Candidate.
-        - Else -> Long Candidate (Momentum/Quality).
+        Select 1 representative from each cluster using Dual-Track Scoring.
         
-        Args:
-            include_hint: If True, includes 'action' (long/short) and specific reason.
-                          If False, action is 'analyze' and reason is generic.
+        Track 1 (Long): Score = 0.6 * Mom + 0.4 * (1 - Anom)
+        Track 2 (Short): Score = 0.3 * |Mom| + 0.3 * Anom + 0.2 * Centrality + 0.2 * Panic
         
-        Returns a list of candidates to be analyzed by ALL agents.
+        Selection:
+        Compare Max(Short) vs Max(Long).
+        If Short > Long * 1.1 -> Short.
+        Else -> Long.
         """
         candidates = []
         
         for cluster_id, local_tickers in clusters.items():
             if not local_tickers: continue
             
-            # Get data for this cluster
-            cluster_styles = styles.loc[local_tickers]
-            cluster_anoms = anomaly_scores.loc[local_tickers] if not anomaly_scores.empty else pd.Series(0, index=local_tickers)
+            # Prepare data for this cluster
+            c_styles = styles.loc[local_tickers]
+            c_anoms = anomaly_scores.reindex(local_tickers).fillna(0)
+            c_panic = panic_scores.reindex(local_tickers).fillna(0)
+            c_degrees = degrees.reindex(local_tickers).fillna(0) # Centrality
             
-            # 1. Check for Short Candidates first (Priority in Crisis)
-            # Find max anomaly score in cluster
-            best_anom_ticker = cluster_anoms.idxmax()
-            best_anom_score = cluster_anoms.max()
+            # Normalize inputs roughly to [0, 1] or comparable scales if possible
+            # Momentum is usually [-0.5, 0.5] or similar.
+            # Anomaly Score is usually positive? (We negated decision_function, so usually [-0.5, 0.5]?)
+            # Let's assume raw values are used as per formula, but we might needs scaling.
+            # Requirement gave explicit weights, implying raw values.
             
-            # Threshold for "Short"
-            # If score is high (relative) and momentum is negative
-            is_short = False
-            selected_ticker = None
-            reason = ""
+            # Track 1: Long Score
+            # Condition: Momentum > 0
+            mom = c_styles['momentum']
             
-            if best_anom_score > 0.0: # Threshold: >0 means determined as 'Outlier' by iForest
-                 mom = cluster_styles.loc[best_anom_ticker, 'momentum']
-                 if mom < 0:
-                     is_short = True
-                     selected_ticker = best_anom_ticker
-                     reason = f"High Anomaly ({best_anom_score:.2f}) & Neg Mom"
+            # Anomaly Score normalization? 
+            # If Anomaly score is very high (e.g. 0.2), (1 - Anom) is 0.8.
+            # If Anomaly score is negative (normal), (1 - Anom) > 1.
+            # Let's assume Anomaly Score is somewhat verified.
             
-            if not is_short:
-                # Select based on Momentum (Trend Following)
-                # In Expansion: Pick High Momentum
-                # In Contraction: Pick Low Volatility? (Not computed here yet)
+            score_long = (0.6 * mom) + (0.4 * (1 - c_anoms))
+            # Mask: Momentum must be > 0
+            score_long[mom <= 0] = -999 # Disqualify
+            
+            best_long_ticker = score_long.idxmax()
+            best_long_val = score_long.max()
+            
+            # Track 2: Short Score
+            # Entry Condition: (Mom < 0) OR (Panic > 2.0)
+            score_short = (0.3 * mom.abs()) + (0.3 * c_anoms) + (0.2 * c_degrees) + (0.2 * c_panic)
+            
+            # Mask
+            mask_short = (mom < 0) | (c_panic > 2.0)
+            score_short[~mask_short] = -999
+            
+            best_short_ticker = score_short.idxmax()
+            best_short_val = score_short.max()
+            
+             # Final Selection
+            # Default to Long if both invalid? Or skip?
+            if best_long_val == -999 and best_short_val == -999:
+                continue # No suitable candidate
                 
-                # Simple selection: Highest Momentum
-                best_mom_ticker = cluster_styles['momentum'].idxmax()
-                selected_ticker = best_mom_ticker
-                reason = f"Cluster Leader Momentum: {cluster_styles.loc[selected_ticker, 'momentum']:.2f}"
+            action = "long"
+            selected_ticker = best_long_ticker
+            # Formatting reason string
+            specific_reason = f"Score Long: {best_long_val:.2f}"
             
-            # Create Candidate Dict
-            # Note: No specific 'agent' assigned. This candidate is for the whole team.
+            # Comparison Logic
+            # If Short valid AND (Short > Long * 1.1 OR Long invalid)
+            threshold = best_long_val * 1.1
             
+            if best_short_val > -999:
+                if (best_long_val == -999) or (best_short_val > threshold):
+                    action = "short"
+                    selected_ticker = best_short_ticker
+                    specific_reason = f"Score Short: {best_short_val:.2f} (Panic: {c_panic[best_short_ticker]:.2f})"
+            
+            # Application of Hint
             if include_hint:
-                action = "short" if is_short else "long"
-                final_reason = f"Cluster {cluster_id}: {reason}"
+                final_action = action
+                final_reason = f"Cluster {cluster_id}: {specific_reason}"
             else:
-                action = "analyze"
-                final_reason = f"Cluster {cluster_id} Representative"
+                final_action = "analyze"
+                final_reason = f"Cluster {cluster_id} Representative (Hidden)"
 
             candidate = {
                 "ticker": selected_ticker,
-                "action": action,
+                "action": final_action,
                 "reason": final_reason,
                 "regime": market_regime
             }

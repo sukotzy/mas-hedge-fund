@@ -1,3 +1,4 @@
+import numpy as np
 import json
 import logging
 import pandas as pd
@@ -42,6 +43,15 @@ def run_selection_pipeline(end_date: str, lookback_days: int = 252, include_hint
     dist_matrix = regime_detector.compute_distance_matrix(returns)
     mst = regime_detector.build_mst(dist_matrix)
     ntl = regime_detector.calculate_ntl(mst)
+    
+    # Calculate Degree Centrality (Topology)
+    from src.selection.layer1 import TopologyFilter, get_combined_candidate_pool
+    topo_filter = TopologyFilter()
+    degrees_array = topo_filter.compute_degree_centrality(mst)
+    degrees_series = pd.Series(degrees_array, index=tickers)
+    
+    # Get Topology Candidates (Hubs & Leaves)
+    topo_candidates = topo_filter.get_topology_candidates(degrees_array, tickers)
     
     # For NTL history, we calculate it over a rolling window (e.g., past 60 days).
     # This allows us to establish a baseline (Mean) and Volatility (Std) for the tree length.
@@ -118,23 +128,54 @@ def run_selection_pipeline(end_date: str, lookback_days: int = 252, include_hint
     features = anom_detector.compute_features(prices, volume)
     anom_scores = anom_detector.detect_anomalies(features)
     
+    # --- Step 2c: Filter Logic (30+30 Rule) ---
+    pool = get_combined_candidate_pool(topo_candidates, anom_scores)
+    logger.info(f"Layer 1 Filter: Reduced universe to {len(pool)} candidates.")
+    
     # --- Step 3: Layer 2 (Diversity & Routing) ---
     logger.info("Executing Layer 2: Clustering & Selection...")
     
     selector = CandidateSelector()
     
-    # Diversity Clustering
-    # Use dist_matrix from Layer 1
-    clusters = selector.cluster_candidates(dist_matrix, prices.columns.tolist(), k=5)
+    # Slice Data for Layer 2
+    # We need to maintain indices alignment for distance matrix slicing
+    pool_indices = [tickers.index(t) for t in pool if t in tickers]
+    # Safety check
+    if not pool_indices:
+        logger.warning("No candidates found in pool. Using top 50 by volume as fallback.")
+        # fallback logic...
+        pool = volume.iloc[-1].sort_values(ascending=False).head(50).index.tolist()
+        pool_indices = [tickers.index(t) for t in pool if t in tickers]
     
-    # Style Factors
-    # Ideally fetch fundamentals here for Value factor
-    # For speed, using just Price-based styles in Layer 2 for now.
-    fundamentals = pd.DataFrame() # Empty for now
-    styles = selector.calculate_style_factors(prices, fundamentals)
+    # Slice Distance Matrix for Clustering
+    # dist_matrix is numpy array (N x N)
+    pool_dist_matrix = dist_matrix[np.ix_(pool_indices, pool_indices)]
+    
+    # Diversity Clustering
+    clusters = selector.cluster_candidates(pool_dist_matrix, pool, k=5)
+    
+    # Style Factors & Panic Score
+    # Pass subset data to speed up? Or full data and let it handle?
+    # Logic is usually cleaner if we pass 'pool' prices.
+    pool_prices = prices[pool]
+    pool_volume = volume[pool] # We have 'volume' now!
+    
+    # Calculate Scores
+    # Note: Fundamentals still empty for now
+    fundamentals = pd.DataFrame() 
+    styles = selector.calculate_style_factors(pool_prices, fundamentals)
+    panic_scores = selector.calculate_panic_score(pool_prices, pool_volume)
     
     # Selection
-    tasks = selector.select_candidates(clusters, styles, anom_scores, regime, include_hint=include_hint)
+    tasks = selector.select_candidates(
+        clusters=clusters, 
+        styles=styles, 
+        anomaly_scores=anom_scores, # Pass full or subset? Index alignment handles it.
+        panic_scores=panic_scores,
+        degrees=degrees_series,
+        market_regime=regime,
+        include_hint=include_hint
+    )
     
     logger.info(f"Generated {len(tasks)} tasks.")
     
@@ -145,4 +186,3 @@ def run_selection_pipeline(end_date: str, lookback_days: int = 252, include_hint
         "tasks": tasks
     }
 
-import numpy as np # Missing import

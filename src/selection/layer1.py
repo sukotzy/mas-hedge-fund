@@ -151,19 +151,60 @@ class AnomalyDetector:
         
         return pd.Series(scores, index=features.index, name='anomaly_score')
 
-    def get_short_candidates(self, anomaly_scores: pd.Series, momentum: pd.Series, top_n: int = 15) -> List[str]:
-        """
-        Filter:
-        1. Top N Anomaly Scores.
-        2. MUST have Negative Momentum (Down trend).
-        """
-        df = pd.concat([anomaly_scores, momentum], axis=1)
-        df.columns = ['score', 'momentum']
-        
-        # Filter negative momentum
-        candidates = df[df['momentum'] < 0]
-        
-        # Sort by anomaly score desc
-        candidates = candidates.sort_values('score', ascending=False)
-        
         return candidates.head(top_n).index.tolist()
+
+class TopologyFilter:
+    """
+    Layer 1 Component: Selects candidates based on Network Topology (MST).
+    Goal: Select 'Hubs' (Central info flow) and 'Leaves' (Isolated/Distinct).
+    """
+    
+    def compute_degree_centrality(self, mst_matrix: np.ndarray) -> np.ndarray:
+        """
+        Compute degree centrality for each node in the MST.
+        MST matrix is expected to be the adjacency matrix.
+        """
+        # Ensure MST is symmetric (undirected graph)
+        # If input is upper triangular, make it symmetric
+        if not np.allclose(mst_matrix, mst_matrix.T):
+            mst_matrix = np.maximum(mst_matrix, mst_matrix.T)
+            
+        # Degree = Number of non-zero connections per node
+        # Since it's a weighted matrix, we count non-zeros
+        degrees = np.count_nonzero(mst_matrix, axis=1)
+        return degrees
+
+    def get_topology_candidates(self, degrees: np.ndarray, tickers: List[str], n_hubs: int = 15, n_leaves: int = 15) -> List[str]:
+        """
+        Select Top N Hubs (High Degree) and Top N Leaves (Low Degree).
+        """
+        if len(tickers) != len(degrees):
+             return []
+             
+        # Create Series
+        deg_series = pd.Series(degrees, index=tickers)
+        
+        # Hubs: Largest degrees
+        hubs = deg_series.nlargest(n_hubs).index.tolist()
+        
+        # Leaves: Smallest degrees (typically degree 1 in MST)
+        # We take the bottom N.
+        leaves = deg_series.nsmallest(n_leaves).index.tolist()
+        
+        return list(set(hubs + leaves))
+
+def get_combined_candidate_pool(
+    topology_candidates: List[str], 
+    anomaly_scores: pd.Series, 
+    top_n_anomalies: int = 30
+) -> List[str]:
+    """
+    The "Physical Screen": Combine Topology (Hubs+Leaves) with Anomalies.
+    Rule: Group A (30 Topology) + Group B (Top 30 Anomalies).
+    """
+    # Group B: Top Anomalies
+    anomalies = anomaly_scores.sort_values(ascending=False).head(top_n_anomalies).index.tolist()
+    
+    # Union
+    pool = list(set(topology_candidates + anomalies))
+    return pool

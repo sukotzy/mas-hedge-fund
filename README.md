@@ -12,18 +12,28 @@ The architecture is divided into three main stages: **Selection (The Funnel)**, 
 
 *Solves the "Compute Efficiency Paradox" by pre-filtering the S&P 500 down to 3-5 high-potential candidates using market physics.*
 
-#### **Layer 1: Market Regime & Macro Pre-Screening**
-*   **Market Physics**: Uses **Minimum Spanning Tree (MST)** & **Normalized Tree Length (NTL)**.
-    *   **Contraction (Crisis)**: Detected when the MST shrinks significantly (Z-Score < -1.5 vs rolling history), indicating high system-wide correlation and panic.
-    *   **Expansion (Normal)**: Detected when MST expands, indicating a healthy market driven by idiosyncratic factors.
-*   **Short Selling Engine**: Uses **Isolation Forest** (Unsupervised Anomaly Detection).
-    *   Identifies stocks with "structural breaks" (e.g., price/volume divergence, abnormal volatility) as potential candidates for short selling (Forensic/Valuation targets).
+#### **Layer 1: Market Regime & Topology (The "30+30 Rule")**
+*   **Regime Detection**: Uses **Minimum Spanning Tree (MST)** & **Normalized Tree Length (NTL)** to classify the market state (Contraction/Expansion).
+*   **The "30+30" Candidate Pool**:
+    *   **Group A (Topology)**: Selects the top 15 **Hubs** (High Degree Centrality, "Too Big to Fail") and top 15 **Leaves** (Low Degree Centrality, likely idiosyncratic movers) from the MST.
+    *   **Group B (Anomalies)**: Uses **Isolation Forest** to identify the top 30 stocks with "structural breaks" (unusual price/volume behavior).
+    *   **Result**: A combined universe of ~60 candidates passed to Layer 2.
 
-#### **Layer 2: Diversity & Candidate Selection**
-*   **Clustering**: Groups stocks into statistically distinct clusters (via Hierarchical Risk Parity / Ward's Linkage) to ensure portfolio orthogonality (diversity).
-*   **Selection Logic**:
-    *   **Long Scenario**: Selects the highest momentum stock in the cluster.
-    *   **Short Scenario**: Selects the stock with the highest Anomaly Score if it exceeds the threshold (0.0).
+#### **Layer 2: Dual-Track Scoring & Panic Detection**
+*   **Clustering**: Groups filtered candidates into 5 statistically distinct clusters to ensure diversity.
+*   **Panic Score**: Identifies Crash Risks using Volume + Price Physics.
+    $$PanicScore = Volratio \times |Ret| \times 100$$
+    *(Triggered only if $Ret < 0$)*
+*   **Dual-Track Scoring**:
+    Each candidate is evaluated on two tracks simultaneously:
+    1.  **Long Track** (Trend Following):
+        $$Score_{Long} = 0.6 \cdot Momentum + 0.4 \cdot (1 - AnomalyScore)$$
+    2.  **Short Track** (Risk/Crash):
+        $$Score_{Short} = 0.3 \cdot |Momentum| + 0.3 \cdot AnomalyScore + 0.2 \cdot Centrality + 0.2 \cdot PanicScore$$
+*   **Final Decision**:
+    *   The system compares the best *Long* vs. *Short* candidate in each cluster.
+    *   **Short Condition**: If $Score_{Short} > Score_{Long} \times 1.1$, the system routes a **SHORT** task.
+    *   Else, it routes a **LONG** task.
 
 #### **🧪 A/B Testing: The "Hint" Toggle**
 To benchmark the reasoning capabilities of the AI agents, the selection layer supports two modes:

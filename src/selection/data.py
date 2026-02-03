@@ -77,6 +77,9 @@ class SelectionDataLoader:
         # This allows us to pivot by Ticker
         df = df.merge(permno_map, on='permno', how='left')
         
+        # Drop rows where ticker is NaN (if permno map incomplete)
+        df = df.dropna(subset=['ticker', 'date'])
+
         # Handle duplicates: If multiple Permnos map to same Ticker (e.g. Class A/B), 
         # or data issues. We keep the first one or one with highest volume?
         # Simple fix: Drop duplicates on Date/Ticker
@@ -90,13 +93,26 @@ class SelectionDataLoader:
         # But let's stick to prices -> log returns.
         
         prices_df = df.pivot(index='date', columns='ticker', values='prc')
-        volume_df = df.pivot(index='date', columns='ticker', values='vol')
+        
+        # Ensure 'vol' column exists before pivoting
+        if 'vol' not in df.columns:
+            # Fallback if 'vol' is missing from raw fetch for some reason, though it should be there.
+            # We strictly need volume.
+            # If completely missing, we have a problem.
+            # Try to see if there's 'volume' or other alias.
+            # For now panic if not found or fill 0.
+            # Assuming 'vol' is standard CRSP.
+            print("Warning: 'vol' column missing in DataFrame. creating empty volume df.")
+            volume_df = pd.DataFrame(0, index=prices_df.index, columns=prices_df.columns)
+        else:
+            volume_df = df.pivot(index='date', columns='ticker', values='vol')
         
         # Forward fill missing prices for short gaps (limit 3 days), then drop remaining NaNs (inactive stocks)
         prices_df = prices_df.ffill(limit=3).dropna(axis=1, how='any')
         
         # Align volume with valid prices
-        volume_df = volume_df[prices_df.columns].loc[prices_df.index]
+        # Fill missing volume with 0 (CRSP sometimes has NaN for 0 volume)
+        volume_df = volume_df[prices_df.columns].loc[prices_df.index].fillna(0)
         
         valid_tickers_final = prices_df.columns.tolist()
         
