@@ -151,7 +151,7 @@ class AnomalyDetector:
         
         return pd.Series(scores, index=features.index, name='anomaly_score')
 
-        return candidates.head(top_n).index.tolist()
+
 
 class TopologyFilter:
     """

@@ -4,7 +4,7 @@ import logging
 import pandas as pd
 from typing import Dict, List, Any
 from src.selection.data import SelectionDataLoader
-from src.selection.layer1 import MarketRegimeDetector, AnomalyDetector
+from src.selection.layer1 import MarketRegimeDetector, AnomalyDetector, TopologyFilter, get_combined_candidate_pool
 from src.selection.layer2 import CandidateSelector
 
 # Setup basic logging
@@ -45,7 +45,7 @@ def run_selection_pipeline(end_date: str, lookback_days: int = 252, include_hint
     ntl = regime_detector.calculate_ntl(mst)
     
     # Calculate Degree Centrality (Topology)
-    from src.selection.layer1 import TopologyFilter, get_combined_candidate_pool
+
     topo_filter = TopologyFilter()
     degrees_array = topo_filter.compute_degree_centrality(mst)
     degrees_series = pd.Series(degrees_array, index=tickers)

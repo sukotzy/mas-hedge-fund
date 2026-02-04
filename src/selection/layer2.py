@@ -177,6 +177,10 @@ class CandidateSelector:
             c_panic = panic_scores.reindex(local_tickers).fillna(0)
             c_degrees = degrees.reindex(local_tickers).fillna(0) # Centrality
             
+            # Optimization: Clip Anomaly Scores to [0, 1]
+            # If Score < 0 (Normal), treat as 0 penalty. If > 1, cap at 1.
+            c_anoms_clipped = c_anoms.clip(0, 1)
+
             # Normalize inputs roughly to [0, 1] or comparable scales if possible
             # Momentum is usually [-0.5, 0.5] or similar.
             # Anomaly Score is usually positive? (We negated decision_function, so usually [-0.5, 0.5]?)
@@ -192,7 +196,7 @@ class CandidateSelector:
             # If Anomaly score is negative (normal), (1 - Anom) > 1.
             # Let's assume Anomaly Score is somewhat verified.
             
-            score_long = (0.6 * mom) + (0.4 * (1 - c_anoms))
+            score_long = (0.6 * mom) + (0.4 * (1 - c_anoms_clipped))
             # Mask: Momentum must be > 0
             score_long[mom <= 0] = -999 # Disqualify
             
@@ -201,7 +205,7 @@ class CandidateSelector:
             
             # Track 2: Short Score
             # Entry Condition: (Mom < 0) OR (Panic > 2.0)
-            score_short = (0.3 * mom.abs()) + (0.3 * c_anoms) + (0.2 * c_degrees) + (0.2 * c_panic)
+            score_short = (0.3 * mom.abs()) + (0.3 * c_anoms_clipped) + (0.2 * c_degrees) + (0.2 * c_panic)
             
             # Mask
             mask_short = (mom < 0) | (c_panic > 2.0)
