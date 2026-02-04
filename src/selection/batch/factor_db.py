@@ -185,10 +185,12 @@ def batch_compute_factors(data_dir: str = "data", start_year: int = 2015, limit:
             # prices[1:] should align with returns.
             
             # Price slice for [t-251 : t] (252 days)
-            # returns[i] is t. prices[i+1] is t.
-            p_end_idx = i + 1 
-            p_start_idx = max(0, p_end_idx - WINDOW_ANOM)
+            # returns[i] is t. prices[i+1] is t. NO, prices[i] is t.
+            # FIX: p_end_idx must be i.
+            p_end_idx = i 
+            p_start_idx = max(0, p_end_idx - WINDOW_ANOM + 1)
             
+            # Slice is exclusive at end, so we need +1 to include p_end_idx
             window_prices = prices.iloc[p_start_idx : p_end_idx + 1].loc[:, current_tickers]
             window_vol = volume.iloc[p_start_idx : p_end_idx + 1].loc[:, current_tickers]
             
