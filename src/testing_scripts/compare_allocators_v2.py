@@ -1,3 +1,4 @@
+'''Benchmarks "Global Batch" vs "Separate Batch".'''
 
 import os
 import sys

@@ -216,15 +216,28 @@ def _analyze_and_allocate_global(tickers, end_date, api_key, agent_id, state):
     
     universe_content = []
     
+    # Prepare Hints
+    data = state.get("data", {})
+    tasks = data.get("tasks", [])
+    hint_map = {t['ticker']: t for t in tasks}
+    
     for ticker in tickers:
+        # Hint string
+        hint_str = ""
+        if ticker in hint_map:
+            task = hint_map[ticker]
+            action = task.get('action', 'analyze')
+            if action != 'analyze':
+                hint_str = f"Quantitative Signal: {action.upper()} (Reason: {task.get('reason', 'N/A')})\\n"
+
         # Pass start_date
         company_news = get_company_news(ticker, end_date, start_date=start_date, limit=5, api_key=api_key)
         if not company_news:
-            universe_content.append(f"Stock {ticker}: No significant corporate events in the last 7 days.")
+            universe_content.append(f"Stock {ticker}: {hint_str}No significant corporate events in the last 7 days.")
             continue
             
         events_text = "\\n".join([f"- {n.date}: {n.title}" for n in company_news])
-        universe_content.append(f"Stock {ticker} Events (Last 7 Days):\\n{events_text}")
+        universe_content.append(f"Stock {ticker} Events (Last 7 Days):\\n{hint_str}{events_text}")
 
     full_context = "\\n\\n".join(universe_content)
     

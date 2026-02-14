@@ -205,6 +205,10 @@ class CandidateSelector:
             
             # Track 2: Short Score
             # Entry Condition: (Mom < 0) OR (Panic > 2.0)
+            
+            # FIX: Force strict alignment to silence FutureWarning on | operator
+            mom = mom.reindex(c_panic.index)
+            
             score_short = (0.3 * mom.abs()) + (0.3 * c_anoms_clipped) + (0.2 * c_degrees) + (0.2 * c_panic)
             
             # Mask

@@ -104,8 +104,20 @@ def valuation_allocator(state: AgentState, agent_id: str = "valuation_allocator"
         intrinsic_value = (dcf_val * 0.35) + (owner_val * 0.35) + (ev_val * 0.20) + (rim_val * 0.10)
         gap = (intrinsic_value - market_cap) / market_cap
         
+        # Prepare Hints
+        tasks = data.get("tasks", [])
+        hint_map = {t['ticker']: t for t in tasks}
+        
+        hint_str = ""
+        if ticker in hint_map:
+            task = hint_map[ticker]
+            action = task.get('action', 'analyze')
+            if action != 'analyze':
+                hint_str = f"  - Quantitative Signal: {action.upper()} (Reason: {task.get('reason', 'N/A')})\n"
+                
         summary = (
             f"Stock {ticker}:\n"
+            f"{hint_str}"
             f"  - Price (Market Cap): ${market_cap:,.0f}\n"
             f"  - Intrinsic Value: ${intrinsic_value:,.0f} (Gap: {gap:+.1%})\n"
             f"  - Breakdown: DCF ${dcf_val:,.0f} | Owner Earnings ${owner_val:,.0f} | EV/EBITDA Implied ${ev_val:,.0f} | Residual Income ${rim_val:,.0f}\n"

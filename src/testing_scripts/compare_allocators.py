@@ -1,3 +1,4 @@
+'''Benchmarks "Separate Batch" vs "Individual Event Analysis".'''
 
 import os
 import sys

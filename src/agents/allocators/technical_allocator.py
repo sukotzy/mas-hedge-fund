@@ -51,9 +51,21 @@ def technical_allocator(state: AgentState, agent_id: str = "technical_allocator"
         vol = calculate_volatility_signals(df)
         stat_arb = calculate_stat_arb_signals(df)
         
+        # Prepare Hints
+        tasks = data.get("tasks", [])
+        hint_map = {t['ticker']: t for t in tasks}
+        
+        hint_str = ""
+        if ticker in hint_map:
+            task = hint_map[ticker]
+            action = task.get('action', 'analyze')
+            if action != 'analyze':
+                hint_str = f"  - Quantitative Signal: {action.upper()} (Reason: {task.get('reason', 'N/A')})\n"
+        
         # Format Summary
         summary = (
             f"Stock {ticker}:\n"
+            f"{hint_str}"
             f"  - Trend: {trend['signal'].upper()} (Confidence {trend['confidence']:.0%})\n"
             f"  - Momentum: {momentum['signal'].upper()} (Confidence {momentum['confidence']:.0%})\n"
             f"  - Mean Reversion: {reversion['signal'].upper()} (RSI: {reversion['metrics']['rsi_14']:.1f})\n"

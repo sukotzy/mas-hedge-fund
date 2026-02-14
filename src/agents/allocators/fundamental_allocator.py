@@ -37,8 +37,20 @@ def fundamental_allocator(state: AgentState, agent_id: str = "fundamental_alloca
         # We don't need to hardcode thresholds here; let the LLM judge "Good vs Bad" based on the data.
         # But providing context (e.g. "High ROE") helps. 
         
+        # Prepare Hints
+        tasks = data.get("tasks", [])
+        hint_map = {t['ticker']: t for t in tasks}
+        
+        hint_str = ""
+        if ticker in hint_map:
+            task = hint_map[ticker]
+            action = task.get('action', 'analyze')
+            if action != 'analyze':
+                hint_str = f"  - Quantitative Signal: {action.upper()} (Reason: {task.get('reason', 'N/A')})\n"
+        
         summary = (
             f"Stock {ticker}:\n"
+            f"{hint_str}"
             f"  - Profitability: ROE {(m.return_on_equity or 0):.1%} | Net Margin {(m.net_margin or 0):.1%} | Op Margin {(m.operating_margin or 0):.1%}\n"
             f"  - Growth: Rev Growth {(m.revenue_growth or 0):.1%} | Earnings Growth {(m.earnings_growth or 0):.1%} | Book Value Growth {(m.book_value_growth or 0):.1%}\n"
             f"  - Health: D/E {(m.debt_to_equity or 0):.2f} | Current Ratio {(m.current_ratio or 0):.2f} | FCF/Share ${(m.free_cash_flow_per_share or 0):.2f} vs EPS ${(m.earnings_per_share or 0):.2f}\n"
