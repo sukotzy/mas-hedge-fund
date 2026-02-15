@@ -5,7 +5,7 @@ from pathlib import Path
 from tqdm import tqdm
 from src.selection.data import get_local_loader
 # Updated Imports
-from src.selection.batch.layer1_detectors import RobustMarketRegimeDetector, RobustAnomalyDetector
+from src.selection.layer1_detectors import RobustMarketRegimeDetector, RobustAnomalyDetector
 from src.selection.layer1_shared import TopologyFilter
 
 # Setup Logging

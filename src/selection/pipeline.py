@@ -5,10 +5,10 @@ import pandas as pd
 from typing import Dict, List, Any
 from pathlib import Path
 from src.selection.data import SelectionDataLoader
-from src.selection.realtime.layer1_detectors import MarketRegimeDetector
+# Updated Imports: Use Batch Detector instead of Realtime
+from src.selection.layer1_detectors import RobustMarketRegimeDetector
 from src.selection.layer1_shared import TopologyFilter, get_combined_candidate_pool
 from src.selection.layer2 import CandidateSelector
-from src.selection.realtime.pipeline import run_selection_pipeline as run_realtime_pipeline
 
 # Setup basic logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -20,10 +20,10 @@ def run_batch_pipeline(end_date: str, lookback_days: int = 252, include_hint: bo
     
     1. Try to load Pre-computed Factors (Regime, Anomalies) from Parquet.
     2. If found, skip expensive Layer 1 calculation.
-    3. If missing, fallback to run_realtime_pipeline logic.
+    3. If missing, LOG ERROR and return empty (Realtime fallback is removed).
     4. Layer 2: Cluster Candidates & Route to Agents.
     """
-    logger.info(f"Starting Selection Pipeline (Batch/Hybrid) for {end_date}...")
+    logger.info(f"Starting Selection Pipeline (Batch Only) for {end_date}...")
     
     # --- Optimization: Try Pre-computed Data ---
     processed_dir = Path("data/processed")
@@ -56,10 +56,10 @@ def run_batch_pipeline(end_date: str, lookback_days: int = 252, include_hint: bo
         except Exception as e:
             logger.warning(f"Failed to load pre-computed data: {e}")
 
-    # If Pre-computation NOT available, fallback immediately
+    # If Pre-computation NOT available, return empty (No Realtime Fallback)
     if not use_precomputed:
-        logger.warning(f"Pre-computed data missing for {end_date}. Falling back to Real-Time calculation.")
-        return run_realtime_pipeline(end_date, lookback_days, include_hint)
+        logger.error(f"Pre-computed data missing for {end_date}. Please run factor_db.py first.")
+        return {"market_state": "Unknown", "tasks": []}
 
     # --- Step 1: Data Fetching (Still needed for Layer 2 Prices/Volume) ---
     loader = SelectionDataLoader()
@@ -111,8 +111,8 @@ def run_batch_pipeline(end_date: str, lookback_days: int = 252, include_hint: bo
     # returns for clustering:
     returns_now = np.log(prices / prices.shift(1)).dropna()
     
-    # Using Realtime Detector for clustering distance since we have clean slice
-    regime_detector = MarketRegimeDetector()
+    # Using Robust Detector for clustering distance since we have clean slice and want consistency
+    regime_detector = RobustMarketRegimeDetector()
     dist_matrix_full = regime_detector.compute_distance_matrix(returns_now)
     pool_dist_matrix = dist_matrix_full[np.ix_(pool_indices, pool_indices)]
     

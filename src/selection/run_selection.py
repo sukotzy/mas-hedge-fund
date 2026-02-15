@@ -4,7 +4,7 @@ import logging
 import json
 from pathlib import Path
 from tqdm import tqdm
-from src.selection.batch.pipeline import run_batch_pipeline
+from src.selection.pipeline import run_batch_pipeline
 
 # Setup Logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
