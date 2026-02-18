@@ -3,9 +3,9 @@ import numpy as np
 from scipy.cluster.hierarchy import linkage, fcluster
 from typing import List, Dict, Tuple
 
-class CandidateSelector:
+class CandidateGenerator:
     """
-    Layer 2 Component: Selects final candidates from the pool.
+    Layer 2 Component: Generates final candidates from the pool.
     Uses Hierarchical Clustering (Ward's method) to ensure diversity.
     Maps clusters to investment styles (Value, Momentum, etc.) for agent routing.
     """

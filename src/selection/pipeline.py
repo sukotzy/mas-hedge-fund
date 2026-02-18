@@ -8,7 +8,7 @@ from src.selection.data import SelectionDataLoader
 # Updated Imports: Use Merged Detector
 from src.selection.layer1_detectors import MarketRegimeDetector, TopologyFilter, get_combined_candidate_pool
 # layer1_shared is gone
-from src.selection.layer2 import CandidateSelector
+from src.selection.layer2_candidate_generation import CandidateGenerator
 
 # Setup basic logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -81,7 +81,7 @@ def run_batch_pipeline(end_date: str, lookback_days: int = 252, include_hint: bo
     # Align with current tickers (fill 0 for missing)
     anom_scores = valid_factors['anomaly_score'].reindex(tickers).fillna(0)
     degrees_series = valid_factors['degree'].reindex(tickers).fillna(0)
-    db_panic_scores = valid_factors['panic_score'].reindex(tickers).fillna(0)
+    # Panic Score Removed from DB read (Optimization)
     
     # Reconstruct Topology Candidates from Degree Series
     topo_filter = TopologyFilter()
@@ -96,7 +96,7 @@ def run_batch_pipeline(end_date: str, lookback_days: int = 252, include_hint: bo
     # --- Step 3: Layer 2 (Diversity & Routing) ---
     logger.info("Executing Layer 2: Clustering & Selection...")
     
-    selector = CandidateSelector()
+    generator = CandidateGenerator()
     
     # Slice Data for Layer 2
     pool_indices = [tickers.index(t) for t in pool if t in tickers]
@@ -117,21 +117,20 @@ def run_batch_pipeline(end_date: str, lookback_days: int = 252, include_hint: bo
     pool_dist_matrix = dist_matrix_full[np.ix_(pool_indices, pool_indices)]
     
     # Diversity Clustering
-    clusters = selector.cluster_candidates(pool_dist_matrix, pool, k=5)
+    clusters = generator.cluster_candidates(pool_dist_matrix, pool, k=5)
     
     # Style Factors
     pool_prices = prices[pool]
     pool_volume = volume[pool]
     fundamentals = pd.DataFrame() 
-    styles = selector.calculate_style_factors(pool_prices, fundamentals)
+    styles = generator.calculate_style_factors(pool_prices, fundamentals)
     
-    # Panic Scores (Use DB value for consistency with Batch, or Recalc?)
-    # DB value is consistent with the regime calculation logic. Use DB.
-    # Reindex to pool
-    panic_scores = db_panic_scores.reindex(pool).fillna(0)
+    # Panic Scores (On-the-fly Calculation for Candidates Only)
+    logger.info("Calculating Panic Scores for candidates...")
+    panic_scores = generator.calculate_panic_score(pool_prices, pool_volume)
     
     # Selection
-    tasks = selector.select_candidates(
+    tasks = generator.select_candidates(
         clusters=clusters, 
         styles=styles, 
         anomaly_scores=anom_scores, 

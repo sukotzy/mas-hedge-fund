@@ -191,8 +191,6 @@ def batch_compute_factors(data_dir: str = "data", start_year: int = 2015, limit:
             p_start_idx = max(0, p_end_idx - WINDOW_ANOM + 1)
             
             # Slice is exclusive at end, so we need +1 to include p_end_idx
-            window_prices = prices.iloc[p_start_idx : p_end_idx + 1].loc[:, current_tickers]
-            window_vol = volume.iloc[p_start_idx : p_end_idx + 1].loc[:, current_tickers]
             
             features = anom_detector.compute_features(window_prices, window_vol)
             # Fill inf/nan
@@ -200,56 +198,13 @@ def batch_compute_factors(data_dir: str = "data", start_year: int = 2015, limit:
             
             # Detect
             anom_scores = anom_detector.detect_anomalies(features)
-            
-            # C. Panic Score [Window: 20d]
-            # Window: [t-20 : t]
-            # We need Volume Mean of [t-20 : t-1] (20 days prior to t)
-            # And Ret of t.
-            
-            # Slice last 21 days from window_prices (if available) to get Returns and Volume
-            # Or reuse window_prices since it covers 252d.
-            # We need strictly last 21 days logic.
-            
-            # Current day values
-            v_t = window_vol.iloc[-1]
-            
-            # Past 20 days volume (excluding current)
-            if len(window_vol) >= 21:
-                v_hist = window_vol.iloc[-21:-1]
-                v_avg = v_hist.mean()
-            elif len(window_vol) > 1:
-                v_hist = window_vol.iloc[:-1] # Use whatever history we have
-                v_avg = v_hist.mean()
-            else:
-                v_avg = v_t # Avoid div by zero?
-            
-            v_avg = v_avg.replace(0, 1) # Avoid div by zero
-            
-            # Price Return t
-            # p_t = prices[t], p_prev = prices[t-1]
-            p_t = window_prices.iloc[-1]
-            p_prev = window_prices.iloc[-2]
-            daily_ret = (p_t - p_prev) / p_prev
-            
-            vol_ratio = v_t / v_avg
-            
-            panic_mask = (daily_ret < 0).values
-            panic_scores = np.zeros(len(current_tickers))
-            
-            # Calculate scores using numpy directly
-            # vol_ratio and daily_ret are series, convert to numpy
-            scores = (vol_ratio * daily_ret.abs() * 100).values
-            
-            panic_scores[panic_mask] = scores[panic_mask]
-            
             # Store Data
-            # Format: Date | Ticker | Anomaly | Degree | Panic
+            # Format: Date | Ticker | Anomaly | Degree
             df_day = pd.DataFrame({
                 'date': date,
                 'ticker': current_tickers,
                 'anomaly_score': anom_scores.values,
-                'degree': degrees,
-                'panic_score': panic_scores # Already numpy array
+                'degree': degrees
             })
             stock_records.append(df_day)
             
