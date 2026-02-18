@@ -5,8 +5,8 @@ from pathlib import Path
 from tqdm import tqdm
 from src.selection.data import get_local_loader
 # Updated Imports
-from src.selection.layer1_detectors import RobustMarketRegimeDetector, RobustAnomalyDetector
-from src.selection.layer1_shared import TopologyFilter
+from src.selection.layer1_detectors import MarketRegimeDetector, AnomalyDetector, TopologyFilter
+# layer1_shared is gone
 
 # Setup Logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -59,10 +59,10 @@ def batch_compute_factors(data_dir: str = "data", start_year: int = 2015, limit:
     returns = np.log(prices / prices.shift(1))
     returns = returns.replace([np.inf, -np.inf], np.nan)
     
-    # Initialize Detectors (Using Robust Versions)
-    regime_detector = RobustMarketRegimeDetector()
-    topo_filter = TopologyFilter() # TopologyFilter is simple math, no need to fork
-    anom_detector = RobustAnomalyDetector()
+    # Initialize Detectors 
+    regime_detector = MarketRegimeDetector()
+    topo_filter = TopologyFilter() 
+    anom_detector = AnomalyDetector()
     
     # Validation
     valid_dates = returns.index

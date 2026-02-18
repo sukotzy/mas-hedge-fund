@@ -5,9 +5,9 @@ import pandas as pd
 from typing import Dict, List, Any
 from pathlib import Path
 from src.selection.data import SelectionDataLoader
-# Updated Imports: Use Batch Detector instead of Realtime
-from src.selection.layer1_detectors import RobustMarketRegimeDetector
-from src.selection.layer1_shared import TopologyFilter, get_combined_candidate_pool
+# Updated Imports: Use Merged Detector
+from src.selection.layer1_detectors import MarketRegimeDetector, TopologyFilter, get_combined_candidate_pool
+# layer1_shared is gone
 from src.selection.layer2 import CandidateSelector
 
 # Setup basic logging
@@ -111,8 +111,8 @@ def run_batch_pipeline(end_date: str, lookback_days: int = 252, include_hint: bo
     # returns for clustering:
     returns_now = np.log(prices / prices.shift(1)).dropna()
     
-    # Using Robust Detector for clustering distance since we have clean slice and want consistency
-    regime_detector = RobustMarketRegimeDetector()
+    # Using MarketRegimeDetector for clustering distance since we have clean slice and want consistency
+    regime_detector = MarketRegimeDetector()
     dist_matrix_full = regime_detector.compute_distance_matrix(returns_now)
     pool_dist_matrix = dist_matrix_full[np.ix_(pool_indices, pool_indices)]
     
