@@ -40,7 +40,7 @@ hf2/
 .env.local
 
 # Data files
-data/
+/data/
 *.csv
 *.json.cache
 
