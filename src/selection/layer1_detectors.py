@@ -157,6 +157,32 @@ class AnomalyDetector:
         
         return pd.Series(scores, index=features.index, name='anomaly_score')
 
+def denoise_correlation_matrix(corr: np.ndarray, T: int, N: int) -> np.ndarray:
+    """
+    Applies Marčenko-Pastur Denoising (Constant Residual Eigenvalue Method).
+    T: Time series length (e.g., 504)
+    N: Number of assets
+    """
+    # Safety: RMT requires T/N to be reasonable. If T < N, return raw.
+    if T < N: return corr
+    
+    q = T / N
+    evals, evecs = np.linalg.eigh(corr)
+    
+    # Threshold
+    sigma2 = 1 
+    lambda_max = sigma2 * (1 + np.sqrt(1/q))**2
+    
+    # Clip noise
+    noise_mask = evals <= lambda_max
+    if noise_mask.any():
+        evals[noise_mask] = np.mean(evals[noise_mask])
+    
+    # Reconstruct
+    denoised = evecs @ np.diag(evals) @ evecs.T
+    np.fill_diagonal(denoised, 1.0)
+    return denoised
+
 class TopologyFilter:
     """
     Selects candidates based on Network Topology (MST).
@@ -171,6 +197,59 @@ class TopologyFilter:
             mst_matrix = np.maximum(mst_matrix, mst_matrix.T)
         degrees = np.count_nonzero(mst_matrix, axis=1)
         return degrees
+
+    def compute_robust_structure(self, returns: pd.DataFrame) -> Tuple[np.ndarray, List[str]]:
+        """
+        Compute Robust Topology (Hubs) using specific 2-year window + RMT.
+        Steps:
+        1. Calculate Correlation Matrix (2-year).
+        2. Denoise using Marčenko-Pastur (RMT).
+        3. Build MST from Denoised Correlation.
+        4. Calculate Degrees.
+        
+        Returns:
+            degrees: np.ndarray of degree counts
+            tickers: List[str] corresponding to the degrees (columns of returns)
+        """
+        if returns.empty:
+            return np.array([]), []
+            
+        T, N = returns.shape
+        tickers = returns.columns.tolist()
+        
+        # 1. Correlation (Numpy for speed/robustness)
+        # fillna(0) to ensure numeric
+        # Strictly enforce float
+        try:
+            clean_vals = returns.fillna(0).astype(float).values 
+        except ValueError:
+            # Fallback for mixed types, force coercion
+            clean_vals = returns.fillna(0).apply(pd.to_numeric, errors='coerce').fillna(0).values
+        
+        # np.corrcoef expects vars as rows (N x T)
+        raw_corr = np.corrcoef(clean_vals.T)
+        
+        # Handle simple case where correlation failed (NaNs)
+        raw_corr = np.nan_to_num(raw_corr)
+        
+        # 2. Denoise (RMT)
+        clean_corr = denoise_correlation_matrix(raw_corr, T, N)
+        
+        # 3. Distance Matrix
+        # d = sqrt(2(1-rho))
+        # Clip to ensure valid sqrt
+        clean_corr = np.clip(clean_corr, -1.0, 1.0)
+        dist_matrix = np.sqrt(2 * (1 - clean_corr))
+        np.fill_diagonal(dist_matrix, 0)
+        
+        # 4. MST
+        mst_csr = minimum_spanning_tree(dist_matrix)
+        mst_dense = mst_csr.toarray()
+        
+        # 5. Degrees
+        degrees = self.compute_degree_centrality(mst_dense)
+        
+        return degrees, tickers
 
     def get_topology_candidates(self, degrees: np.ndarray, tickers: List[str], n_hubs: int = 15, n_leaves: int = 15) -> List[str]:
         """
