@@ -25,11 +25,12 @@ class CandidateGenerator:
         # dist_matrix from Layer 1 is square.
         from scipy.spatial.distance import squareform
         
-        # Check if symmetric
-        if not np.allclose(dist_matrix, dist_matrix.T):
-             # Force symmetry
-             dist_matrix = (dist_matrix + dist_matrix.T) / 2
-             np.fill_diagonal(dist_matrix, 0)
+        # Force symmetry strictly for Scipy
+        # np.allclose might pass but simplex errors trigger is_valid_dm
+        dist_matrix = (dist_matrix + dist_matrix.T) / 2
+        np.fill_diagonal(dist_matrix, 0)
+        # Ensure no negative small floats
+        dist_matrix = np.clip(dist_matrix, 0, None)
         
         condensed_dist = squareform(dist_matrix)
         
