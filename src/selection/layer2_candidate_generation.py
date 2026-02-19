@@ -251,7 +251,8 @@ class CandidateGenerator:
                 "ticker": selected_ticker,
                 "action": final_action,
                 "reason": final_reason,
-                "regime": market_regime
+                "regime": market_regime,
+                "confidence": round(float(best_short_val if action == "short" else best_long_val), 4)
             }
             candidates.append(candidate)
             
