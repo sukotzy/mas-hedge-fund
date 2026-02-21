@@ -81,6 +81,11 @@ def run_batch_pipeline(end_date: str, lookback_days: int = 252, include_hint: bo
     # Align with current tickers (fill 0 for missing)
     anom_scores = valid_factors['anomaly_score'].reindex(tickers).fillna(0)
     degrees_series = valid_factors['degree'].reindex(tickers).fillna(0)
+    volatility_series = valid_factors['volatility_20d'].reindex(tickers).fillna(0) if 'volatility_20d' in valid_factors.columns else pd.Series(0, index=tickers)
+    volume_ratio_series = valid_factors['volume_ratio'].reindex(tickers).fillna(1.0) if 'volume_ratio' in valid_factors.columns else pd.Series(1.0, index=tickers)
+    
+    # Fetch Sectors
+    sector_series = loader.fetch_sectors(tickers, target_date=end_date)
     # Panic Score Removed from DB read (Optimization)
     
     # Reconstruct Topology Candidates from Degree Series
@@ -117,7 +122,22 @@ def run_batch_pipeline(end_date: str, lookback_days: int = 252, include_hint: bo
     pool_dist_matrix = dist_matrix_full[np.ix_(pool_indices, pool_indices)]
     
     # Diversity Clustering
-    clusters = generator.cluster_candidates(pool_dist_matrix, pool, k=5)
+    pool_volatility = volatility_series.reindex(pool).fillna(0)
+    pool_volume_ratio = volume_ratio_series.reindex(pool).fillna(1.0)
+    pool_sectors = sector_series.reindex(pool).fillna(-1) # -1 implies unknown sector
+    
+    features_df = pd.DataFrame({
+        'volatility': pool_volatility,
+        'volume_ratio': pool_volume_ratio
+    })
+    
+    clusters = generator.cluster_candidates(
+        dist_matrix=pool_dist_matrix, 
+        tickers=pool,
+        features_df=features_df,
+        sectors=pool_sectors,
+        k=5
+    )
     
     # Style Factors
     pool_prices = prices[pool]

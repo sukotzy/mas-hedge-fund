@@ -10,29 +10,81 @@ class CandidateGenerator:
     Maps clusters to investment styles (Value, Momentum, etc.) for agent routing.
     """
     
-    def cluster_candidates(self, dist_matrix: np.ndarray, tickers: List[str], k: int = 5) -> Dict[int, List[str]]:
+    def cluster_candidates(self, 
+                           dist_matrix: np.ndarray, 
+                           tickers: List[str], 
+                           features_df: pd.DataFrame = None,
+                           sectors: pd.Series = None,
+                           k: int = 5) -> Dict[int, List[str]]:
         """
-        Perform Hierarchical Clustering on the distance matrix.
+        Perform Hierarchical Clustering on the composite distance matrix.
+        Combines Topology (Returns), Risk (Volatility), Liquidity (Volume), and Structure (Sector).
         Returns a mapping of Cluster ID -> List of Tickers.
         """
         if len(tickers) < k:
              # Fallback if specific pool is too small
              return {0: tickers}
              
-        # Compact distance matrix form for linkage
-        # distance matrix must be condensed (upper triangular)
-        # scipy squareform needed? 
-        # dist_matrix from Layer 1 is square.
-        from scipy.spatial.distance import squareform
+        from scipy.spatial.distance import squareform, pdist
         
-        # Force symmetry strictly for Scipy
-        # np.allclose might pass but simplex errors trigger is_valid_dm
-        dist_matrix = (dist_matrix + dist_matrix.T) / 2
-        np.fill_diagonal(dist_matrix, 0)
-        # Ensure no negative small floats
-        dist_matrix = np.clip(dist_matrix, 0, None)
+        # 1. Base Topology Distance (Correlation-based)
+        dist_topo = (dist_matrix + dist_matrix.T) / 2
+        np.fill_diagonal(dist_topo, 0)
+        dist_topo = np.clip(dist_topo, 0, None)
         
-        condensed_dist = squareform(dist_matrix)
+        # Max scaling for topo to ensure comparability
+        max_topo = np.max(dist_topo) if np.max(dist_topo) > 0 else 1.0
+        dist_topo = dist_topo / max_topo
+
+        final_dist = dist_topo.copy() * 0.4 # Base weight 40%
+        N = len(tickers)
+
+        # 2. Feature Distance (Volatility, Volume Ratio)
+        if features_df is not None and not features_df.empty:
+            from sklearn.preprocessing import MinMaxScaler
+            
+            # Ensure order matches tickers
+            features_aligned = features_df.reindex(tickers).fillna(0)
+            
+            # Normalize features to [0, 1]
+            scaler = MinMaxScaler()
+            feats_scaled = scaler.fit_transform(features_aligned)
+            
+            # Euclidean distance in feature space
+            dist_feat = squareform(pdist(feats_scaled, metric='euclidean'))
+            max_feat = np.max(dist_feat) if np.max(dist_feat) > 0 else 1.0
+            dist_feat = dist_feat / max_feat
+            
+            final_dist += dist_feat * 0.3 # Weight 30%
+
+        # 3. Sector Penalty (Hard structural isolation)
+        if sectors is not None and not sectors.empty:
+            sectors_aligned = sectors.reindex(tickers).fillna(-1).values
+            dist_sector = np.zeros((N, N))
+            
+            for i in range(N):
+                for j in range(i+1, N):
+                    s1 = sectors_aligned[i]
+                    s2 = sectors_aligned[j]
+                    
+                    if s1 == -1 or s2 == -1:
+                        penalty = 0.5 # Unknown sector, mild penalty
+                    elif s1 != s2:
+                        penalty = 1.0 # Different sector, full penalty
+                    else:
+                        penalty = 0.0 # Same sector
+                    
+                    dist_sector[i, j] = penalty
+                    dist_sector[j, i] = penalty
+                    
+            final_dist += dist_sector * 0.3 # Weight 30%
+
+        # 4. Final Formatting for Scipy Linkage
+        final_dist = (final_dist + final_dist.T) / 2
+        np.fill_diagonal(final_dist, 0)
+        final_dist = np.clip(final_dist, 0, None)
+        
+        condensed_dist = squareform(final_dist)
         
         # Ward's linkage
         Z = linkage(condensed_dist, method='ward')

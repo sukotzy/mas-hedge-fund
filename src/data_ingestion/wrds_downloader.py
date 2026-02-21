@@ -127,6 +127,26 @@ def get_financial_ratios_firm_ratio(db, permnos, start_date='2015-01-01', end_da
         print(f"Error fetching from firm_ratio: {e}")
         return pd.DataFrame()
 
+def get_company_info(db, permnos=None):
+    """
+    Get generic company info (including GICS Sector mappings).
+    If permnos is provided, limits to companies matching those permnos via ccm_links.
+    For simplicity and completeness over time, we just pull everything we can that matches the tickers in our universe.
+    """
+    print("Fetching Company Info (GICS Sectors) from comp.company...")
+    
+    query = """
+        SELECT gvkey, gsector
+        FROM comp.company
+    """
+    try:
+        data = db.raw_sql(query)
+        print(f"Got {len(data)} rows from comp.company.")
+        return data
+    except Exception as e:
+        print(f"Error fetching comp.company: {e}")
+        return pd.DataFrame()
+
 def get_financial_data_manual(db, permnos, start_date='2015-01-01', end_date='2024-12-31'):
     """
     Get Financial Data manually by linking CRSP permnos to Compustat GVKEYs
@@ -301,6 +321,11 @@ def main():
     links, fund_data = get_financial_data_manual(db, unique_permnos, args.start_date, args.end_date)
     save_data(links, 'ccm_links.parquet')
     save_data(fund_data, 'comp_fundq.parquet')
+    
+    # 5. Get Company Info (Sectors)
+    company_info = get_company_info(db)
+    if not company_info.empty:
+        save_data(company_info, 'company_info.parquet')
     
     db.close()
 

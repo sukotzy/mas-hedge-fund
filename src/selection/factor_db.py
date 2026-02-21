@@ -55,6 +55,12 @@ def batch_compute_factors(data_dir: str = "data", start_year: int = 2015, limit:
     returns = np.log(prices / prices.shift(1))
     returns = returns.replace([np.inf, -np.inf], np.nan)
     
+    # Pre-calculate Volatility and Volume Ratio for Layer 2 Clustering
+    volatility = returns.rolling(window=20).std()
+    volume_avg = volume.rolling(window=20).mean().replace(0, np.nan) # avoid div by zero
+    volume_ratio = volume / volume_avg
+    
+    
     # Initialize Detectors 
     regime_detector = MarketRegimeDetector()
     topo_filter = TopologyFilter() 
@@ -192,12 +198,18 @@ def batch_compute_factors(data_dir: str = "data", start_year: int = 2015, limit:
                          # Reindex to current active -> fillna(0)
                          mapped_degrees = deg_map.reindex(current_active_tickers).fillna(0).values
                      
+                     # Extract pre-calculated factors for this day
+                     volatility_day = volatility.iloc[p_end_idx][current_active_tickers].fillna(0).values
+                     volume_ratio_day = volume_ratio.iloc[p_end_idx][current_active_tickers].fillna(1.0).values
+                     
                      # Store
                      df_day = pd.DataFrame({
                         'date': date,
                         'ticker': current_active_tickers,
                         'anomaly_score': anom_scores.values,
-                        'degree': mapped_degrees
+                        'degree': mapped_degrees,
+                        'volatility_20d': volatility_day,
+                        'volume_ratio': volume_ratio_day
                      })
                      stock_records.append(df_day)
                      

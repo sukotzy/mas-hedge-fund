@@ -170,3 +170,41 @@ class SelectionDataLoader:
             })
             
         return pd.DataFrame(records)
+
+    def fetch_sectors(self, tickers: List[str], target_date: str = None) -> pd.Series:
+        """Fetch static GICS Sector numeric code (gsector) for a list of tickers utilizing GVKEY mapping. 
+        Unmapped become 0 or NaN."""
+        if not hasattr(self.loader, 'company_info') or self.loader.company_info.empty:
+            return pd.Series(np.nan, index=tickers)
+            
+        result = pd.Series(index=tickers, dtype=float)
+        
+        # We need a date to resolve permno if available, else just use today
+        lookup_date = target_date if target_date else pd.Timestamp.today().strftime('%Y-%m-%d')
+        
+        # company_info now only has gvkey, gsector, etc. (no ticker)
+        # We must map Ticker -> Permno -> GVKEY -> Gsector
+        for t in tickers:
+            permno = self.loader.get_permno(t, lookup_date)
+            if not permno:
+                result[t] = np.nan
+                continue
+                
+            gvkey = self.loader.get_gvkey(permno)
+            if not gvkey:
+                result[t] = np.nan
+                continue
+                
+            # Find in company info
+            matches = self.loader.company_info[self.loader.company_info['gvkey'] == gvkey]
+            if not matches.empty:
+                try:
+                    gsector_val = matches.iloc[-1]['gsector']
+                    result[t] = float(gsector_val) if pd.notna(gsector_val) else np.nan
+                except (ValueError, KeyError):
+                     result[t] = np.nan
+            else:
+                 result[t] = np.nan
+                 
+        return result
+

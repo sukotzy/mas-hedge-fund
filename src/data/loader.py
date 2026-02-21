@@ -55,7 +55,16 @@ class LocalDataLoader:
             except FileNotFoundError:
                 print("LocalDataLoader Warning: sp500_keydev.parquet not found. News features will be disabled.")
                 self.keydev = pd.DataFrame()
-            
+
+            # 7. Company Info (GICS Sectors)
+            try:
+                self.company_info = pd.read_parquet(self.raw_dir / "company_info.parquet")
+                if 'gvkey' in self.company_info.columns:
+                    self.company_info['gvkey'] = self.company_info['gvkey'].astype(str).str.zfill(6)
+            except FileNotFoundError:
+                print("LocalDataLoader Warning: company_info.parquet not found. Sector mapping disabled.")
+                self.company_info = pd.DataFrame()
+                
             print("LocalDataLoader: Successfully loaded WRDS Parquet files.")
             
         except FileNotFoundError as e:
@@ -66,6 +75,7 @@ class LocalDataLoader:
             self.ccm_links = pd.DataFrame()
             self.fundamentals = pd.DataFrame()
             self.ratios = pd.DataFrame()
+            self.company_info = pd.DataFrame()
 
     def get_permno(self, ticker: str, date: str) -> Optional[int]:
         """Resolve Ticker to Permno for a specific date."""
