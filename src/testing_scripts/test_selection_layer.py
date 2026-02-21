@@ -19,12 +19,12 @@ def main():
         for t in result_with['tasks']:
             print(f"  [{t['action'].upper()}] {t['ticker']} | Reason: {t['reason']}")
             
-        print(f"\n=== TEST 2: Without Hints (Blind) ===")
-        result_without = run_selection_pipeline(args.date, include_hint=False)
         
+        print(f"\n=== TEST 2: Without Hints (Blind) ===")
         print("Tasks:")
-        for t in result_without['tasks']:
-            print(f"  [{t['action'].upper()}] {t['ticker']} | Reason: {t['reason']}")
+        for t in result_with['tasks']:
+            cluster_str = t['reason'].split(':')[0]
+            print(f"  [ANALYZE] {t['ticker']} | Reason: {cluster_str} Representative (Hidden)")
             
     except Exception as e:
         print(f"Error running pipeline: {e}")

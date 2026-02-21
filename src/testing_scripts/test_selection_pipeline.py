@@ -45,15 +45,16 @@ def main():
             except Exception as e:
                 print(f"  Failed (Hint=True): {e}")
 
-            # Run without Hint
+            # Run without Hint (Derived)
             print("  [Mode: No Hint]")
             try:
-                result = run_selection_pipeline(date_str, lookback_days=252, include_hint=False)
                 print(f"  Selected Candidates (All):")
-                for task in result['tasks']:
-                    print(f"    - {task['ticker']}: {task['action'].upper()} | {task['reason']}")
+                if 'result' in locals():
+                    for task in result['tasks']:
+                        cluster_str = task['reason'].split(':')[0]
+                        print(f"    - {task['ticker']}: ANALYZE | {cluster_str} Representative (Hidden)")
             except Exception as e:
-                print(f"  Failed (Hint=False): {e}")
+                print(f"  Failed (Hint=False derived): {e}")
                 
     except FileNotFoundError:
         print("Error: data/raw/sp500_ohlcv.parquet not found. Please run downloader first.")

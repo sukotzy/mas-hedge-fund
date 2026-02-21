@@ -49,16 +49,23 @@ def batch_selection(
         date_str = ts.strftime('%Y-%m-%d')
         
         try:
-            # 1. With Hint
+            # Run Once (With Hint)
             output_hint = run_batch_pipeline(end_date=date_str, lookback_days=252, include_hint=True)
             tasks_hint = output_hint.get('tasks', [])
+            
             if tasks_hint:
                 results_hint.append({'date': ts, 'tasks': json.dumps(tasks_hint)})
-
-            # 2. No Hint
-            output_no_hint = run_batch_pipeline(end_date=date_str, lookback_days=252, include_hint=False)
-            tasks_no_hint = output_no_hint.get('tasks', [])
-            if tasks_no_hint:
+                
+                # Derive No Hint Version
+                tasks_no_hint = []
+                for t in tasks_hint:
+                    t_no_hint = t.copy()
+                    t_no_hint['action'] = "analyze"
+                    # reason starts with "Cluster X: ...", so we can extract "Cluster X"
+                    cluster_str = t_no_hint['reason'].split(':')[0]
+                    t_no_hint['reason'] = f"{cluster_str} Representative (Hidden)"
+                    tasks_no_hint.append(t_no_hint)
+                    
                 results_no_hint.append({'date': ts, 'tasks': json.dumps(tasks_no_hint)})
                 
         except Exception as e:
