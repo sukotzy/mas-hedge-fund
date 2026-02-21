@@ -31,27 +31,36 @@ class LocalDataLoader:
             self.constituents['start'] = pd.to_datetime(self.constituents['start'])
             self.constituents['ending'] = pd.to_datetime(self.constituents['ending'])
             
-            # 2. OHLCV (Prices)
+            # 2. OHLCV (Prices) - Set Hash Index for O(1) lookup
             self.ohlcv = pd.read_parquet(self.raw_dir / "sp500_ohlcv.parquet")
             self.ohlcv['date'] = pd.to_datetime(self.ohlcv['date'])
+            if 'permno' in self.ohlcv.columns:
+                self.ohlcv.set_index('permno', drop=False, inplace=True)
             
             # 3. CCM Links (Permno <-> GVKEY)
             self.ccm_links = pd.read_parquet(self.raw_dir / "ccm_links.parquet")
-            # Links usually imply valid range, but for now we assume 1:1 dominant link for the period
             
-            # 4. Fundamentals (comp.fundq)
+            # 4. Fundamentals (comp.fundq) - Set Hash Index for O(1) lookup
             self.fundamentals = pd.read_parquet(self.raw_dir / "comp_fundq.parquet")
             if 'rdq' in self.fundamentals.columns:
                 self.fundamentals['rdq'] = pd.to_datetime(self.fundamentals['rdq'])
+            if 'gvkey' in self.fundamentals.columns:
+                self.fundamentals['gvkey'] = self.fundamentals['gvkey'].astype(str).str.zfill(6)
+                self.fundamentals.set_index('gvkey', drop=False, inplace=True)
             
-            # 5. Ratios (firm_ratio)
+            # 5. Ratios (firm_ratio) - Set Hash Index for O(1) lookup
             self.ratios = pd.read_parquet(self.raw_dir / "sp500_ratios_firm_ratio.parquet")
             self.ratios['date'] = pd.to_datetime(self.ratios['date']) # This is public_date
+            if 'permno' in self.ratios.columns:
+                self.ratios.set_index('permno', drop=False, inplace=True)
             
-            # 6. Key Developments (News)
+            # 6. Key Developments (News) - Set Hash Index for O(1) lookup
             try:
                 self.keydev = pd.read_parquet(self.raw_dir / "sp500_keydev.parquet")
                 self.keydev['announcedate'] = pd.to_datetime(self.keydev['announcedate'])
+                if 'gvkey' in self.keydev.columns:
+                    self.keydev['gvkey'] = self.keydev['gvkey'].astype(str).str.zfill(6)
+                    self.keydev.set_index('gvkey', drop=False, inplace=True)
             except FileNotFoundError:
                 print("LocalDataLoader Warning: sp500_keydev.parquet not found. News features will be disabled.")
                 self.keydev = pd.DataFrame()
@@ -65,7 +74,7 @@ class LocalDataLoader:
                 print("LocalDataLoader Warning: company_info.parquet not found. Sector mapping disabled.")
                 self.company_info = pd.DataFrame()
                 
-            print("LocalDataLoader: Successfully loaded WRDS Parquet files.")
+            print("LocalDataLoader: Successfully loaded WRDS Parquet files with O(1) Hash Indices.")
             
         except FileNotFoundError as e:
             print(f"LocalDataLoader Warning: Missing Parquet file - {e}")
@@ -128,13 +137,16 @@ class LocalDataLoader:
         return self._gvkey_cache.get(permno)
 
     def get_prices(self, ticker: str, start_date: str, end_date: str) -> List[Price]:
-        """Get OHLCV data from Parquet."""
+        """Get OHLCV data from Parquet using O(1) Index Lookup."""
         permno = self.get_permno(ticker, end_date)
         if not permno or self.ohlcv.empty:
             return []
             
-        # Filter for permno
-        df = self.ohlcv[self.ohlcv['permno'] == permno].copy()
+        # O(1) Lookup
+        try:
+            df = self.ohlcv.loc[[permno]].copy()
+        except KeyError:
+            return []
         
         # Filter Date Range
         mask = (df['date'] >= pd.to_datetime(start_date)) & (df['date'] <= pd.to_datetime(end_date))
@@ -165,19 +177,20 @@ class LocalDataLoader:
         # 1. Get Ratios (Monthly)
         ratios_df = pd.DataFrame()
         if not self.ratios.empty:
-            ratios_df = self.ratios[
-                (self.ratios['permno'] == permno) & 
-                (self.ratios['date'] <= target_date)
-            ].sort_values('date', ascending=False).head(limit)
+            try:
+                subset = self.ratios.loc[[permno]]
+                ratios_df = subset[subset['date'] <= target_date].sort_values('date', ascending=False).head(limit)
+            except KeyError:
+                pass
         
         # 2. Get Fundamentals (Quarterly)
         fund_df = pd.DataFrame()
         if not self.fundamentals.empty and gvkey:
-            # CRITICAL: Use rdq (release date) to filter
-            fund_df = self.fundamentals[
-                (self.fundamentals['gvkey'] == gvkey) & 
-                (self.fundamentals['rdq'] <= target_date)
-            ].sort_values('rdq', ascending=False).head(limit)
+            try:
+                subset = self.fundamentals.loc[[gvkey]]
+                fund_df = subset[subset['rdq'] <= target_date].sort_values('rdq', ascending=False).head(limit)
+            except KeyError:
+                pass
             
         if fund_df.empty:
             return []
@@ -277,15 +290,13 @@ class LocalDataLoader:
         if start_date:
             start_filter = pd.to_datetime(start_date)
             
-        # Filter KeyDev by gvkey and date range
-        mask = (
-            (self.keydev['gvkey'] == gvkey) &
-            (self.keydev['announcedate'] <= target_end_date) &
-            (self.keydev['announcedate'] >= start_filter)
-        )
-        
-        # Sort desc by date, take limit
-        df = self.keydev[mask].sort_values('announcedate', ascending=False).head(limit)
+        # Filter KeyDev by gvkey and date range (O(1) index lookup)
+        try:
+            df = self.keydev.loc[[gvkey]]
+            mask = (df['announcedate'] <= target_end_date) & (df['announcedate'] >= start_filter)
+            df = df[mask].sort_values('announcedate', ascending=False).head(limit)
+        except KeyError:
+            df = pd.DataFrame()
         
         news_list = []
         for _, row in df.iterrows():
@@ -320,10 +331,11 @@ class LocalDataLoader:
             return []
             
         target_date = pd.to_datetime(end_date)
-        df = self.fundamentals[
-            (self.fundamentals['gvkey'] == gvkey) & 
-            (self.fundamentals['rdq'] <= target_date)
-        ].sort_values('rdq', ascending=False).head(limit)
+        try:
+            subset = self.fundamentals.loc[[gvkey]]
+            df = subset[subset['rdq'] <= target_date].sort_values('rdq', ascending=False).head(limit)
+        except KeyError:
+            return []
         
         column_map = {
             'net_income': 'niq',
