@@ -60,23 +60,20 @@ class CandidateGenerator:
         # 3. Sector Penalty (Hard structural isolation)
         if sectors is not None and not sectors.empty:
             sectors_aligned = sectors.reindex(tickers).fillna(-1).values
-            dist_sector = np.zeros((N, N))
             
-            for i in range(N):
-                for j in range(i+1, N):
-                    s1 = sectors_aligned[i]
-                    s2 = sectors_aligned[j]
-                    
-                    if s1 == -1 or s2 == -1:
-                        penalty = 0.5 # Unknown sector, mild penalty
-                    elif s1 != s2:
-                        penalty = 1.0 # Different sector, full penalty
-                    else:
-                        penalty = 0.0 # Same sector
-                    
-                    dist_sector[i, j] = penalty
-                    dist_sector[j, i] = penalty
-                    
+            # Vectorized Matrix calculation (N x N)
+            # Create a 2D grid of sectors comparing every element
+            S1, S2 = np.meshgrid(sectors_aligned, sectors_aligned)
+            
+            # Base penalty matrix: 1.0 where sectors are different, 0.0 where same
+            dist_sector = np.where(S1 != S2, 1.0, 0.0)
+            
+            # Default to 0.5 where either sector is unknown (-1)
+            dist_sector = np.where((S1 == -1) | (S2 == -1), 0.5, dist_sector)
+            
+            # Ensure diagonal is 0 length against itself
+            np.fill_diagonal(dist_sector, 0)
+            
             final_dist += dist_sector * 0.3 # Weight 30%
 
         # 4. Final Formatting for Scipy Linkage
