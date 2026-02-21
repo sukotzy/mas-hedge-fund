@@ -38,6 +38,8 @@ class SelectionDataLoader:
         permno_map = valid_constituents[['permno', 'ticker']].drop_duplicates(subset='permno', keep='last')
         
         # Merge Ticker info back onto OHLCV
+        # Reset index to avoid ValueError: 'permno' is both an index level and a column label
+        df = df.reset_index(drop=True)
         df = df.merge(permno_map, on='permno', how='left')
         df = df.dropna(subset=['ticker', 'date'])
         df = df.sort_values('vol', ascending=False).drop_duplicates(subset=['date', 'ticker'])

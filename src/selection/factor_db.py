@@ -42,6 +42,8 @@ def batch_compute_factors(data_dir: str = "data", start_year: int = 2015, limit:
     # Simple approach: Permno to Ticker map from constituents (drop duplicates keeping last)
     permno_map = constituents[['permno', 'ticker']].drop_duplicates(subset='permno', keep='last')
     
+    # Reset index to avoid ValueError: 'permno' is both an index level and a column label
+    ohlcv = ohlcv.reset_index(drop=True)
     ohlcv = ohlcv.merge(permno_map, on='permno', how='left')
     ohlcv = ohlcv.dropna(subset=['ticker'])
     
