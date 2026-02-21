@@ -11,7 +11,7 @@ from src.selection.layer1_detectors import MarketRegimeDetector, TopologyFilter,
 from src.selection.layer2_candidate_generation import CandidateGenerator
 
 # Setup basic logging
-logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+logging.basicConfig(level=logging.WARNING, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
 def run_batch_pipeline(end_date: str, lookback_days: int = 252, include_hint: bool = True) -> Dict[str, Any]:
