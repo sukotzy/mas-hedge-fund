@@ -14,7 +14,7 @@ from src.selection.layer2_candidate_generation import CandidateGenerator
 logging.basicConfig(level=logging.WARNING, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
-def run_batch_pipeline(end_date: str, lookback_days: int = 252, include_hint: bool = True) -> Dict[str, Any]:
+def run_batch_pipeline(end_date: str, lookback_days: int = 252, include_hint: bool = True, preloaded_data: Dict = None) -> Dict[str, Any]:
     """
     Executes the Batch/DB-Backed Selection Layer pipeline.
     
@@ -33,28 +33,41 @@ def run_batch_pipeline(end_date: str, lookback_days: int = 252, include_hint: bo
     use_precomputed = False
     precomputed_regime = None
     factors_df = None
+    target_ts = pd.to_datetime(end_date)
     
-    if regime_path.exists() and factors_path.exists():
-        try:
-            target_ts = pd.to_datetime(end_date)
-            # Load Regime (Lazy load ideally, but for now read full)
-            regime_df = pd.read_parquet(regime_path)
-            if target_ts in regime_df.index:
-                precomputed_regime = regime_df.loc[target_ts]
+    if preloaded_data:
+        regime_full = preloaded_data['regime_full']
+        factors_full = preloaded_data['factors_full']
+        
+        if target_ts in regime_full.index:
+            precomputed_regime = regime_full.loc[target_ts]
+            
+            try:
+                # If factors_full is indexed by date
+                factors_df = factors_full.loc[[target_ts]]
+            except KeyError:
+                factors_df = pd.DataFrame()
                 
-                # Load Factors using filters (fast parquet read)
-                try:
-                    factors_df = pd.read_parquet(factors_path, filters=[('date', '==', target_ts)])
-                except Exception:
-                    # Fallback if filters not supported by pyarrow engine/version
-                    full_factors = pd.read_parquet(factors_path)
-                    factors_df = full_factors[full_factors['date'] == target_ts]
-                
-                if not factors_df.empty:
-                    use_precomputed = True
-                    logger.info("Values found in Pre-computed DB. Skipping heavy computation.")
-        except Exception as e:
-            logger.warning(f"Failed to load pre-computed data: {e}")
+            if not factors_df.empty:
+                use_precomputed = True
+    else:
+        # Fallback to disk read
+        if regime_path.exists() and factors_path.exists():
+            try:
+                regime_df = pd.read_parquet(regime_path)
+                if target_ts in regime_df.index:
+                    precomputed_regime = regime_df.loc[target_ts]
+                    
+                    try:
+                        factors_df = pd.read_parquet(factors_path, filters=[('date', '==', target_ts)])
+                    except Exception:
+                        full_factors = pd.read_parquet(factors_path)
+                        factors_df = full_factors[full_factors['date'] == target_ts]
+                    
+                    if not factors_df.empty:
+                        use_precomputed = True
+            except Exception as e:
+                logger.warning(f"Failed to load pre-computed data: {e}")
 
     # If Pre-computation NOT available, return empty (No Realtime Fallback)
     if not use_precomputed:
@@ -62,7 +75,7 @@ def run_batch_pipeline(end_date: str, lookback_days: int = 252, include_hint: bo
         return {"market_state": "Unknown", "tasks": []}
 
     # --- Step 1: Data Fetching (Still needed for Layer 2 Prices/Volume) ---
-    loader = SelectionDataLoader()
+    loader = preloaded_data['loader'] if preloaded_data else SelectionDataLoader()
     prices, volume, tickers = loader.fetch_universe_data(end_date, lookback_days)
     
     if prices.empty:

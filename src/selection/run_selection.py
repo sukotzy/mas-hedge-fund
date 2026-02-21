@@ -5,6 +5,7 @@ import json
 from pathlib import Path
 from tqdm import tqdm
 from src.selection.pipeline import run_batch_pipeline
+from src.selection.data import SelectionDataLoader
 
 # Setup Logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -39,7 +40,25 @@ def batch_selection(
     # Ensure end date is capped at 2024 if needed, but data limits usually handle it. 
     valid_dates = [d for d in valid_dates if pd.Timestamp(d).year >= start_year]
     
-    logger.info(f"Processing {len(valid_dates)} days through Batch Pipeline...")
+    logger.info("Pre-loading entire Factor & Regime DB into memory for fast slicing...")
+    regime_path = p_dir / "market_regime.parquet"
+    regime_full = pd.read_parquet(regime_path)
+    
+    factors_full = pd.read_parquet(factors_path)
+    factors_full['date'] = pd.to_datetime(factors_full['date'])
+    factors_full.set_index('date', inplace=True)
+    
+    logger.info("Pre-loading OHLCV matrices (this takes ~5 seconds once)...")
+    loader = SelectionDataLoader()
+    loader.fetch_all_history()
+    
+    preloaded = {
+        'loader': loader,
+        'regime_full': regime_full,
+        'factors_full': factors_full
+    }
+    
+    logger.info(f"Processing {len(valid_dates)} days through Batch Pipeline (In-Memory)...")
     
     results_hint = []
     results_no_hint = []
@@ -50,7 +69,7 @@ def batch_selection(
         
         try:
             # Run Once (With Hint)
-            output_hint = run_batch_pipeline(end_date=date_str, lookback_days=252, include_hint=True)
+            output_hint = run_batch_pipeline(end_date=date_str, lookback_days=252, include_hint=True, preloaded_data=preloaded)
             tasks_hint = output_hint.get('tasks', [])
             
             if tasks_hint:

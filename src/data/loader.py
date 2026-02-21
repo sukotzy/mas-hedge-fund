@@ -77,43 +77,55 @@ class LocalDataLoader:
             self.ratios = pd.DataFrame()
             self.company_info = pd.DataFrame()
 
+    def _build_caches(self):
+        if hasattr(self, '_permno_cache'): return
+        
+        # Build Ticker -> List of (start, ending, permno)
+        self._permno_cache = {}
+        if not self.constituents.empty:
+            for _, row in self.constituents.iterrows():
+                t = row['ticker']
+                if pd.isna(t): continue
+                if t not in self._permno_cache:
+                    self._permno_cache[t] = []
+                self._permno_cache[t].append((row['start'], row['ending'], int(row['permno'])))
+                
+            # Sort each ticker's records by end date desc for fallback
+            for t in self._permno_cache:
+                self._permno_cache[t].sort(key=lambda x: x[1], reverse=True)
+                
+        # Build Permno -> GVKEY
+        self._gvkey_cache = {}
+        if not self.ccm_links.empty:
+            for _, row in self.ccm_links.iterrows():
+                p = int(row['permno'])
+                self._gvkey_cache[p] = str(row['gvkey']).zfill(6)
+
     def get_permno(self, ticker: str, date: str) -> Optional[int]:
-        """Resolve Ticker to Permno for a specific date."""
+        """Resolve Ticker to Permno for a specific date using O(1) cache."""
         if self.constituents.empty:
             return None
-        
-        target_date = pd.to_datetime(date)
-        
-        # Filter by ticker match
-        # Note: Ticker in WRDS might be just symbol, or have suffix. We assume exact match for now.
-        matches = self.constituents[self.constituents['ticker'] == ticker]
-        
-        # Filter by date range validity
-        valid = matches[
-            (matches['start'] <= target_date) & 
-            (matches['ending'] >= target_date)
-        ]
-        
-        if not valid.empty:
-            return int(valid.iloc[0]['permno'])
-        
-        # Fallback: Check if it exists at all (maybe date mismatch), return most recent
-        if not matches.empty:
-            # Sort by ending desc
-            matches = matches.sort_values('ending', ascending=False)
-            return int(matches.iloc[0]['permno'])
             
+        self._build_caches()
+        target_date = pd.to_datetime(date)
+        records = self._permno_cache.get(ticker, [])
+        
+        for start, end, p in records:
+            if start <= target_date <= end:
+                return p
+                
+        # Fallback to most recent
+        if records:
+            return records[0][2]
         return None
 
     def get_gvkey(self, permno: int) -> Optional[str]:
-        """Resolve Permno to GVKEY."""
+        """Resolve Permno to GVKEY using O(1) cache."""
         if self.ccm_links.empty:
             return None
-        
-        match = self.ccm_links[self.ccm_links['permno'] == permno]
-        if not match.empty:
-            return str(match.iloc[0]['gvkey']).zfill(6) # GVKEYs are 6 char strings
-        return None
+            
+        self._build_caches()
+        return self._gvkey_cache.get(permno)
 
     def get_prices(self, ticker: str, start_date: str, end_date: str) -> List[Price]:
         """Get OHLCV data from Parquet."""
