@@ -112,8 +112,6 @@ def settle_bets(agent_capital, previous_bets, current_prices, previous_prices):
                     is_win = True
                 elif direction == "short" and price_change_pct < 0:
                     is_win = True
-                elif direction == "neutral" and abs(price_change_pct) < 0.005: # In case neutral is still used
-                    is_win = True
                     
                 if is_win:
                     # Winner keeps their stake + share of pool later
