@@ -1,8 +1,8 @@
 
 from langchain_core.messages import HumanMessage
-from src.schemas import PortfolioDecision
+from src.schemas import PortfolioDecision, Allocation
 from src.graph.state import AgentState, show_agent_reasoning
-from src.tools.api import get_financial_metrics, search_line_items, get_market_cap
+from src.tools.api import get_financial_metrics, search_line_items
 from src.utils.api_key import get_api_key_from_state
 from src.utils.llm import call_llm
 from src.utils.progress import progress
@@ -26,6 +26,7 @@ def valuation_allocator(state: AgentState, agent_id: str = "valuation_allocator"
     data = state.get("data", {})
     end_date = data.get("end_date")
     tickers = data.get("tickers")
+    risk_free_rate = data.get("risk_free_rate", 0.0)
     api_key = get_api_key_from_state(state, "FINANCIAL_DATASETS_API_KEY")
     
     progress.update_status(agent_id, "ALL", "Running Valuation Models")
@@ -33,14 +34,20 @@ def valuation_allocator(state: AgentState, agent_id: str = "valuation_allocator"
     universe_summaries = []
     
     for ticker in tickers:
-        # Fetch Metrics
+        # 1. Fetch Metrics
         metrics = get_financial_metrics(ticker, end_date, period="ttm", limit=1, api_key=api_key)
         if not metrics:
              universe_summaries.append(f"Stock {ticker}: No financial metrics found.")
              continue
         m = metrics[0]
         
-        # Fetch Line Items for DCF
+        # Fix 1: Use existing market_cap and skip if missing or <= 0
+        market_cap = m.market_cap
+        if not market_cap or market_cap <= 0:
+             universe_summaries.append(f"Stock {ticker}: Market Cap data missing. Cannot evaluate.")
+             continue
+        
+        # 2. Fetch Line Items for DCF
         line_items = search_line_items(
             ticker=ticker, 
             line_items=["free_cash_flow", "net_income", "depreciation_and_amortization", 
@@ -53,16 +60,22 @@ def valuation_allocator(state: AgentState, agent_id: str = "valuation_allocator"
             
         li_curr = line_items[0]
         
+        # Fix 2: Thoroughly filter None values for safety
+        net_income = getattr(li_curr, 'net_income', None) or 0
+        depreciation = getattr(li_curr, 'depreciation_and_amortization', None) or 0
+        capex = getattr(li_curr, 'capital_expenditure', None) or 0
+        total_debt = getattr(li_curr, 'total_debt', None) or 0
+        cash_equiv = getattr(li_curr, 'cash_and_equivalents', None) or 0
+        
         # --- Run Models ---
-        # 1. Owner Earnings
         wc_change = 0
         if len(line_items) > 1 and getattr(li_curr, 'working_capital', None) and getattr(line_items[1], 'working_capital', None):
              wc_change = li_curr.working_capital - line_items[1].working_capital
              
         owner_val = calculate_owner_earnings_value(
-            getattr(li_curr, 'net_income', 0), 
-            getattr(li_curr, 'depreciation_and_amortization', 0), 
-            getattr(li_curr, 'capital_expenditure', 0), 
+            net_income, 
+            depreciation, 
+            capex, 
             wc_change, 
             growth_rate=m.earnings_growth or 0.05
         )
@@ -70,37 +83,34 @@ def valuation_allocator(state: AgentState, agent_id: str = "valuation_allocator"
         # 2. EV/EBITDA
         ev_val = calculate_ev_ebitda_value(metrics)
         
-        # 3. DCF (Simplified for this agent wrapper, using helper)
-        # Convert line items to FCF history list
-        fcf_history = [getattr(li, 'free_cash_flow', 0) for li in line_items if getattr(li, 'free_cash_flow', None)]
+        # 3. DCF
+        fcf_history = [getattr(li, 'free_cash_flow', None) or 0 for li in line_items]
+        
         wacc = calculate_wacc(
-            m.market_cap or 0, 
-            getattr(li_curr, 'total_debt', 0), 
-            getattr(li_curr, 'cash_and_equivalents', 0), 
-            m.interest_coverage, 
-            m.debt_to_equity
+            market_cap, 
+            total_debt, 
+            cash_equiv, 
+            m.interest_coverage or 0, 
+            m.debt_to_equity or 0
         )
         
         dcf_results = calculate_dcf_scenarios(
             fcf_history, 
-            {'revenue_growth': m.revenue_growth, 'fcf_growth': m.free_cash_flow_growth, 'earnings_growth': m.earnings_growth},
-            wacc, m.market_cap or 0
+            {'revenue_growth': m.revenue_growth or 0, 'fcf_growth': m.free_cash_flow_growth or 0, 'earnings_growth': m.earnings_growth or 0},
+            wacc, 
+            market_cap
         )
-        dcf_val = dcf_results['expected_value']
+        dcf_val = dcf_results.get('expected_value', 0)
         
         # 4. Residual Income Model
         rim_val = calculate_residual_income_value(
-            market_cap=m.market_cap,
-            net_income=getattr(li_curr, 'net_income', 0),
-            price_to_book_ratio=m.price_to_book_ratio,
+            market_cap=market_cap,
+            net_income=net_income,
+            price_to_book_ratio=m.price_to_book_ratio or 0,
             book_value_growth=m.book_value_growth or 0.03
         )
 
         # --- Gap Analysis ---
-        market_cap = get_market_cap(ticker, end_date, api_key=api_key) or 1
-        
-        # Calculate Weighted Intrinsic Value
-        # Weighting aligned with Valuation Analyst: DCF 35%, Owner 35%, EV 20%, RIM 10%
         intrinsic_value = (dcf_val * 0.35) + (owner_val * 0.35) + (ev_val * 0.20) + (rim_val * 0.10)
         gap = (intrinsic_value - market_cap) / market_cap
         
@@ -126,6 +136,14 @@ def valuation_allocator(state: AgentState, agent_id: str = "valuation_allocator"
         universe_summaries.append(summary)
 
     # Construct Context
+    annual_rf = risk_free_rate * 252
+    cash_summary = (
+        f"Asset CASH:\n"
+        f"  - Price: $1.00\n"
+        f"  - Guaranteed Daily Risk-Free Rate: {risk_free_rate:.6f} (Annualized: {annual_rf:.2%})\n"
+        f"  - Note: 'long' means earning this rate. 'short' means paying this rate to borrow capital."
+    )
+    universe_summaries.append(cash_summary)
     study_notes = "\n\n".join(universe_summaries)
     
     # A/B Prompts
@@ -136,37 +154,67 @@ def valuation_allocator(state: AgentState, agent_id: str = "valuation_allocator"
         base_instruction = (
             "You are a Value Investor Portfolio Manager. "
             "Your objective is to allocate capital to the most undervalued assets to maximize returns.\n"
-            "Allocate $100 across these assets (plus 'CASH')."
+            f"Your universe includes the provided stocks AND a 'CASH' asset (which has a known daily risk-free rate of {risk_free_rate:.6f}).\n"
+            "Allocate $100 across these assets based on their valuation."
         )
     else:
         base_instruction = (
             "You are a Value Investor (Buffett/Graham Style) with $100 capital. Your goal is to maximize your wealth long-term.\n"
-            "Your decisions have financial consequences: Buying overvalued stocks is the surest way to lose money.\n"
-            "Margin of Safety is mandatory. If no stock offers a significant discount (e.g. >20% Upside), Protect your wealth by allocating to CASH.\n"
-            "Allocate capital based on your conviction in the valuation gap."
+            "Your decisions have financial consequences. "
+            f"Your universe includes the provided stocks AND a 'CASH' asset (which has a known daily risk-free rate of {risk_free_rate:.6f}).\n"
+            "Allocate capital based on your conviction. Treat CASH as a peer asset with a guaranteed return."
         )
 
     prompt = (
         f"{base_instruction}\n\n"
         f"Valuation Data:\n{study_notes}\n\n"
         f"Constraints:\n"
-        f"1. Total Amount (Stocks + CASH) must equal 100.0.\n"
-        f"2. Assign a Direction (up/down/neutral). 'up' = Undervalued (Buy), 'down' = Overvalued (Sell/Short).\n"
-        f"3. Be decisive."
+        f"1. MATHEMATICAL RULE: The Net Exposure MUST exactly equal 100.0.\n"
+        f"   Calculation: (Sum of ALL 'long' amounts) - (Sum of ALL 'short' amounts) = 100.0\n"
+        f"2. IMPORTANT: Every single 'amount' MUST be a strictly POSITIVE number (e.g., 50.0, never -50.0). The 'direction' field ('long' or 'short') handles the math sign.\n"
+        f"3. GROSS EXPOSURE LIMIT: To prevent excessive risk, the sum of ALL amounts (long + short) should not exceed 1000.0.\n"
+        f"4. MATH EXAMPLES:\n"
+        f"   - Leverage: Long Stocks $150, Short CASH $50. Math: 150 - 50 = 100.0.\n"
+        f"   - Hedging: Long Stocks $120, Short Stocks $20, Long CASH $0. Math: 120 - 20 = 100.0.\n"
+        f"   - Pure Cash: Long CASH $100. Math: 100 - 0 = 100.0.\n"
+        f"5. For stocks: 'long' = Undervalued (Buy), 'short' = Overvalued (Sell/Short).\n"
+        f"6. For CASH: 'long' = Lending/Holding cash to earn the risk-free rate, 'short' = Borrowing cash to deploy leverage.\n"
+        f"7. Do NOT allocate to an asset if your conviction is low. Be decisive."
     )
     
     decision = call_llm(prompt, PortfolioDecision, agent_name=agent_id, state=state)
     
-    # Normalize
-    total = sum(a.amount for a in decision.allocations)
-    if total > 0 and abs(total - 100.0) > 0.1:
-        scale = 100.0 / total
+    # Record original metrics before normalization
+    original_net = sum(abs(a.amount) if a.direction == 'long' else -abs(a.amount) for a in decision.allocations)
+    original_gross = sum(abs(a.amount) for a in decision.allocations)
+
+    # Normalize Net Exposure to 100.0
+    net_exposure = original_net
+    if net_exposure > 0 and abs(net_exposure - 100.0) > 0.1:
+        scale = 100.0 / net_exposure
         for a in decision.allocations:
-            a.amount *= scale
+            a.amount = abs(a.amount) * scale
+    elif net_exposure <= 0:
+        # Fallback: Invalid net exposure. Override and put 100% in CASH.
+        print(f"[{agent_id}] Invalid Net Exposure ({net_exposure}). Defaulting to 100% CASH.")
+        decision.allocations = [
+            Allocation(
+                ticker="CASH",
+                direction="long",
+                amount=100.0,
+                reasoning=f"FALLBACK: Model produced invalid Net Exposure ({net_exposure}). Preserving wealth."
+            )
+        ]
+    else:
+        for a in decision.allocations:
+            a.amount = abs(a.amount)
 
     result = {
         "allocations": [a.model_dump() for a in decision.allocations],
-        "metrics": {"original_total": total}
+        "metrics": {
+            "original_net_exposure": original_net,
+            "original_gross_exposure": original_gross
+        }
     }
     
     if "allocator_decisions" not in state["data"]:

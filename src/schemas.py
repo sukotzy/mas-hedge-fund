@@ -2,9 +2,8 @@ from enum import Enum
 from pydantic import BaseModel, Field
 
 class MarketSignal(Enum):
-    BULLISH = "bullish"
-    BEARISH = "bearish"
-    NEUTRAL = "neutral"
+    LONG = "long"
+    SHORT = "short"
 
 class Bet(BaseModel):
     ticker: str
@@ -27,7 +26,7 @@ class AgentCapital(BaseModel):
 from typing import List, Literal
 class Allocation(BaseModel):
     ticker: str
-    direction: Literal["up", "down", "neutral"]
+    direction: Literal["long", "short"]
     amount: float = Field(description="Capital allocated (0-100)")
     reasoning: str
 

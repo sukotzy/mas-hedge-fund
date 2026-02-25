@@ -27,6 +27,7 @@ def news_sentiment_allocator(state: AgentState, agent_id: str = "news_sentiment_
     data = state.get("data", {})
     end_date = data.get("end_date")
     tickers = data.get("tickers")
+    risk_free_rate = data.get("risk_free_rate", 0.0)
     api_key = get_api_key_from_state(state, "FINANCIAL_DATASETS_API_KEY")
     
     # Store intermediate analysis to feed into the Allocator
@@ -62,34 +63,71 @@ def news_sentiment_allocator(state: AgentState, agent_id: str = "news_sentiment_
     progress.update_status(agent_id, "ALL", "Calculating Portfolio Allocation")
     
     # Construct the Universe View
+    annual_rf = risk_free_rate * 252
+    cash_summary = (
+        f"Signal: neutral (100%). CASH asset with Guaranteed Daily Risk-Free Rate: {risk_free_rate:.6f} "
+        f"(Annualized: {annual_rf:.2%}). 'long' means earning this rate. 'short' means borrowing."
+    )
+    ticker_summaries["CASH"] = cash_summary
+    
     universe_context = "\n".join([f"Stock {t}: {s}" for t, s in ticker_summaries.items()])
     
     allocation_prompt = (
         f"You are a Betting Agent with $100 capital. Your objective is to maximize your wealth through accurate predictions.\n"
         f"Analyze the following universe of stocks based on their recent corporate events (Last 7 Days).\n"
         f"Your decisions have financial consequences: accurate bets increase your capital, while incorrect bets reduce it.\n"
-        f"Allocate your capital based on your conviction in the signal strength.\n\n"
+        f"Your universe includes these stocks AND a 'CASH' asset (which has a known daily risk-free rate of {risk_free_rate:.6f}).\n"
+        f"Allocate your capital based on your conviction in the signal strength. Treat CASH as a peer asset.\n\n"
         f"{universe_context}\n\n"
         f"Constraints:\n"
-        f"1. You may allocate to 'CASH' if your conviction is low.\n"
-        f"2. Total Amount (Stocks + CASH) must equal 100.0.\n"
-        f"3. Assign a Direction (up/down/neutral) for stocks. For CASH, direction is 'neutral'.\n"
+        f"1. MATHEMATICAL RULE: The Net Exposure MUST exactly equal 100.0.\n"
+        f"   Calculation: (Sum of ALL 'long' amounts) - (Sum of ALL 'short' amounts) = 100.0\n"
+        f"2. IMPORTANT: Every single 'amount' MUST be a strictly POSITIVE number (e.g., 50.0, never -50.0). The 'direction' field ('long' or 'short') handles the math sign.\n"
+        f"3. GROSS EXPOSURE LIMIT: To prevent excessive risk, the sum of ALL amounts (long + short) should not exceed 1000.0.\n"
+        f"4. MATH EXAMPLES:\n"
+        f"   - Leverage: Long Stocks $150, Short CASH $50. Math: 150 - 50 = 100.0.\n"
+        f"   - Hedging: Long Stocks $120, Short Stocks $20, Long CASH $0. Math: 120 - 20 = 100.0.\n"
+        f"   - Pure Cash: Long CASH $100. Math: 100 - 0 = 100.0.\n"
+        f"5. For stocks: 'long' = Bullish, 'short' = Bearish.\n"
+        f"6. For CASH: 'long' = Lending/Holding cash to earn the risk-free rate, 'short' = Borrowing cash to deploy leverage.\n"
+        f"7. Do NOT allocate to an asset if your conviction is low. Be decisive.\n"
     )
     
     # Call LLM for the final decision
     decision = call_llm(allocation_prompt, PortfolioDecision, agent_name=agent_id, state=state)
     
-    # Normalize if needed (sanity check)
-    total_alloc = sum(a.amount for a in decision.allocations)
-    if abs(total_alloc - 100.0) > 0.1:
-        # Simple normalization if LLM math is slightly off
+    # Record original metrics before normalization
+    original_net = sum(abs(a.amount) if a.direction == 'long' else -abs(a.amount) for a in decision.allocations)
+    original_gross = sum(abs(a.amount) for a in decision.allocations)
+
+    # Normalize Net Exposure to 100.0
+    net_exposure = original_net
+    if net_exposure > 0 and abs(net_exposure - 100.0) > 0.1:
+        scale = 100.0 / net_exposure
         for a in decision.allocations:
-            a.amount = (a.amount / total_alloc) * 100.0
+            a.amount = abs(a.amount) * scale
+    elif net_exposure <= 0:
+        # Fallback: Invalid net exposure. Override and put 100% in CASH.
+        print(f"[{agent_id}] Invalid Net Exposure ({net_exposure}). Defaulting to 100% CASH.")
+        decision.allocations = [
+            Allocation(
+                ticker="CASH",
+                direction="long",
+                amount=100.0,
+                reasoning=f"FALLBACK: Model produced invalid Net Exposure ({net_exposure}). Preserving wealth."
+            )
+        ]
+    else:
+        for a in decision.allocations:
+            a.amount = abs(a.amount)
             
     # Output
     result = {
         "allocations": [a.model_dump() for a in decision.allocations],
-        "metrics": {"original_total": total_alloc}
+        "metrics": {
+            "original_net_exposure": original_net,
+            "original_gross_exposure": original_gross
+        }
     }
     
     message = HumanMessage(
@@ -213,11 +251,13 @@ def _analyze_and_allocate_global(tickers, end_date, api_key, agent_id, state):
     dt_end = datetime.strptime(end_date, "%Y-%m-%d")
     dt_start = dt_end - timedelta(days=7)
     start_date = dt_start.strftime("%Y-%m-%d")
+
+    data = state.get("data", {})
+    risk_free_rate = data.get("risk_free_rate", 0.0)
     
     universe_content = []
     
     # Prepare Hints
-    data = state.get("data", {})
     tasks = data.get("tasks", [])
     hint_map = {t['ticker']: t for t in tasks}
     
@@ -239,6 +279,14 @@ def _analyze_and_allocate_global(tickers, end_date, api_key, agent_id, state):
         events_text = "\\n".join([f"- {n.date}: {n.title}" for n in company_news])
         universe_content.append(f"Stock {ticker} Events (Last 7 Days):\\n{hint_str}{events_text}")
 
+    annual_rf = risk_free_rate * 252
+    cash_summary = (
+        f"Stock CASH Events (Last 7 Days):\\n"
+        f"- Guaranteed Daily Risk-Free Rate: {risk_free_rate:.6f} (Annualized: {annual_rf:.2%}).\\n"
+        f"- Note: 'long' means earning this rate. 'short' means paying this rate to borrow capital."
+    )
+    universe_content.append(cash_summary)
+
     full_context = "\\n\\n".join(universe_content)
     
     # Select Prompt based on metadata (A/B Testing)
@@ -249,13 +297,17 @@ def _analyze_and_allocate_global(tickers, end_date, api_key, agent_id, state):
         prompt = (
             f"You are a Betting Agent with $100 capital. "
             f"Analyze the following universe of stocks based on their recent corporate events (Last 7 Days).\\n"
-            f"You must allocate capital across these assets (plus 'CASH') to maximize your betting return.\\n\\n"
+            f"Your universe includes these stocks AND a 'CASH' asset (which has a known daily risk-free rate of {risk_free_rate:.6f}).\\n"
+            f"You must allocate capital across these assets to maximize your betting return. Treat CASH as a peer asset.\\n\\n"
             f"{full_context}\\n\\n"
             f"Constraints:\\n"
-            f"1. You may allocate to 'CASH' if your conviction is low.\\n"
-            f"2. Total Amount (Stocks + CASH) must equal 100.0.\\n"
-            f"3. Assign a Direction (up/down/neutral) for stocks. For CASH, direction is 'neutral'.\\n"
-            f"4. Even if there are NO EVENTS for a stock, you must decide a bet (usually Neutral, but your choice based on market context/silence).\\n"
+            f"1. You MUST allocate across the assets. The Net Exposure (Sum of 'long' amounts MINUS Sum of 'short' amounts) MUST exactly equal 100.0.\\n"
+            f"   - Leverage Example: Long $150 in Stocks, Short $50 in CASH. Net = 150 - 50 = 100.\\n"
+            f"   - Shorting Example: Short $50 in Stocks, Long $150 in CASH. Net = 150 - 50 = 100.\\n"
+            f"2. Every allocated asset (including CASH) MUST have a direction: 'long' or 'short'.\\n"
+            f"3. For stocks: 'long' = Bullish, 'short' = Bearish.\\n"
+            f"4. For CASH: 'long' = Lending/Holding cash to earn the risk-free rate, 'short' = Borrowing cash to deploy leverage.\\n"
+            f"5. Do NOT allocate to an asset if your conviction is low. Be decisive.\\n"
         )
     else:
         # Variant Group: Wealth Consequence Prompt (Default)
@@ -263,25 +315,51 @@ def _analyze_and_allocate_global(tickers, end_date, api_key, agent_id, state):
             f"You are a Betting Agent with $100 capital. Your objective is to maximize your wealth through accurate predictions.\\n"
             f"Analyze the following universe of stocks based on their recent corporate events (Last 7 Days).\\n"
             f"Your decisions have financial consequences: accurate bets increase your capital, while incorrect bets reduce it.\\n"
-            f"Allocate your capital based on your conviction in the signal strength.\\n\\n"
+            f"Your universe includes these stocks AND a 'CASH' asset (which has a known daily risk-free rate of {risk_free_rate:.6f}).\\n"
+            f"Allocate your capital based on your conviction in the signal strength. Treat CASH as a peer asset.\\n\\n"
             f"{full_context}\\n\\n"
             f"Constraints:\\n"
-            f"1. You may allocate to 'CASH' if your conviction is low.\\n"
-            f"2. Total Amount (Stocks + CASH) must equal 100.0.\\n"
-            f"3. Assign a Direction (up/down/neutral) for stocks. For CASH, direction is 'neutral'.\\n"
-            f"4. Even if there are NO EVENTS for a stock, you must decide a bet (usually Neutral, but your choice based on market context/silence).\\n"
+            f"1. You MUST allocate across the assets. The Net Exposure (Sum of 'long' amounts MINUS Sum of 'short' amounts) MUST exactly equal 100.0.\\n"
+            f"   - Leverage Example: Long $150 in Stocks, Short $50 in CASH. Net = 150 - 50 = 100.\\n"
+            f"   - Shorting Example: Short $50 in Stocks, Long $150 in CASH. Net = 150 - 50 = 100.\\n"
+            f"2. Every allocated asset (including CASH) MUST have a direction: 'long' or 'short'.\\n"
+            f"3. For stocks: 'long' = Bullish, 'short' = Bearish.\\n"
+            f"4. For CASH: 'long' = Lending/Holding cash to earn the risk-free rate, 'short' = Borrowing cash to deploy leverage.\\n"
+            f"5. Do NOT allocate to an asset if your conviction is low. Be decisive.\\n"
         )
     
     # Call LLM
     decision = call_llm(prompt, PortfolioDecision, agent_name=agent_id, state=state)
     
-    # Normalize
-    total_alloc = sum(a.amount for a in decision.allocations)
-    if abs(total_alloc - 100.0) > 0.1 and total_alloc > 0:
+    # Record original metrics before normalization
+    original_net = sum(abs(a.amount) if a.direction == 'long' else -abs(a.amount) for a in decision.allocations)
+    original_gross = sum(abs(a.amount) for a in decision.allocations)
+
+    # Normalize Net Exposure to 100.0
+    net_exposure = original_net
+    if net_exposure > 0 and abs(net_exposure - 100.0) > 0.1:
+        scale = 100.0 / net_exposure
         for a in decision.allocations:
-            a.amount = (a.amount / total_alloc) * 100.0
+            a.amount = abs(a.amount) * scale
+    elif net_exposure <= 0:
+        # Fallback: Invalid net exposure. Override and put 100% in CASH.
+        print(f"[{agent_id}] Invalid Net Exposure ({net_exposure}). Defaulting to 100% CASH.")
+        decision.allocations = [
+            Allocation(
+                ticker="CASH",
+                direction="long",
+                amount=100.0,
+                reasoning=f"FALLBACK: Model produced invalid Net Exposure ({net_exposure}). Preserving wealth."
+            )
+        ]
+    else:
+        for a in decision.allocations:
+            a.amount = abs(a.amount)
             
     return {
         "allocations": [a.model_dump() for a in decision.allocations],
-        "metrics": {"original_total": total_alloc}
+        "metrics": {
+            "original_net_exposure": original_net,
+            "original_gross_exposure": original_gross
+        }
     }

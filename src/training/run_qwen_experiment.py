@@ -5,6 +5,7 @@ import os
 from pathlib import Path
 from tqdm import tqdm
 from datetime import datetime
+import concurrent.futures
 from dotenv import load_dotenv
 
 # Load Env Vars
@@ -68,7 +69,7 @@ def load_candidates(filename):
         return None
     return pd.read_parquet(path)
 
-def run_allocator(allocator_func, agent_id, date_str, tickers, tasks, prompt_version):
+def run_allocator(allocator_func, agent_id, date_str, tickers, tasks, prompt_version, current_capital=100.0, current_rf_rate=0.0):
     """
     Mock State Wrapper that forces QWEN model usage.
     """
@@ -95,7 +96,14 @@ def run_allocator(allocator_func, agent_id, date_str, tickers, tasks, prompt_ver
     dt_end = pd.Timestamp(date_str)
     dt_start = dt_end - pd.Timedelta(days=365)
     state["data"]["start_date"] = dt_start.strftime("%Y-%m-%d")
-
+    
+    # Inject Dynamic Risk Free Rate
+    state["data"]["risk_free_rate"] = current_rf_rate
+    
+    # We can inject current_capital if the prompt wants to know its total size, 
+    # but the prompt already defaults to "$100". Thus, we let the allocator use $100 
+    # as a "percentage" base, and we scale it down the line. Alternatively, we just log it.
+    
     try:
         result = allocator_func(state, agent_id=agent_id)
         if "allocator_decisions" in result["data"]:
@@ -118,30 +126,75 @@ def main():
             logger.info(f"Loading {fname}...")
             inputs[fname] = load_candidates(fname)
 
+    # Load RF Data
+    rf_file = DATA_DIR / "daily_risk_free_rates.parquet"
+    if rf_file.exists():
+        rf_df = pd.read_parquet(rf_file)
+    else:
+        logger.warning(f"RF data not found at {rf_file}, using fallback.")
+        rf_df = pd.DataFrame()
+        
     # Filter Dates
     all_dates = sorted(list(inputs[list(inputs.keys())[0]].index))
     target_dates = [d for d in all_dates if START_DATE <= pd.Timestamp(d).strftime("%Y-%m-%d") <= END_DATE]
     
-    # --- TEST LIMIT: 3 DAYS ---
-    target_dates = target_dates[:3]
+    # --- TEST LIMIT FOR 1 DAY RUN ---
+    # target_dates = target_dates[:1]
     
-    logger.info(f"Processing {len(target_dates)} days (2020 H1 Test Run)...")
+    logger.info(f"Processing {len(target_dates)} days for full experiment...")
     
-    for date in tqdm(target_dates):
-        date_str = pd.Timestamp(date).strftime("%Y-%m-%d")
+    for exp_name, config in EXPERIMENTS.items():
+        logger.info(f"Starting experiment: {exp_name}")
         
-        for exp_name, config in EXPERIMENTS.items():
+        # Initialize capital tracking for this experiment
+        allocator_capital = {
+            "fundamental": 100.0,
+            "technical": 100.0,
+            "valuation": 100.0,
+            "sentiment": 100.0
+        }
+        current_month = None
+        
+        for date in tqdm(target_dates):
+            date_str = pd.Timestamp(date).strftime("%Y-%m-%d")
+            
             df_candidates = inputs[config["input_file"]]
             
             if date not in df_candidates.index:
                 continue
                 
+            # Get RF Rate
+            current_rf_rate = 0.05 / 252 # Default fallback
+            ts = pd.Timestamp(date)
+            if not rf_df.empty:
+                if ts in rf_df.index:
+                    current_rf_rate = float(rf_df.loc[ts, 'risk_free_rate'])
+                else:
+                    past_rates = rf_df[rf_df.index <= ts]
+                    if not past_rates.empty:
+                        current_rf_rate = float(past_rates.iloc[-1]['risk_free_rate'])
+                        
             tasks_json = df_candidates.loc[date, "tasks"]
             tasks = json.loads(tasks_json)
             tickers = [t['ticker'] for t in tasks]
             
             # Prepare Output Directory
             month_str = pd.Timestamp(date).strftime("%Y_%m")
+            
+            # --- MONTHLY CAPITAL RESET LOGIC ---
+            # If the month changes, reset the capital
+            if month_str != current_month:
+                if current_month is not None:
+                    logger.info(f"Month changed from {current_month} to {month_str}. Applying 10/90 Capital Reset.")
+                    # Distribute new base capital (90%) and retain fraction of old (10%)
+                    # Default base is $100 per allocator
+                    base_capital = 100.0
+                    for alloc_name in allocator_capital:
+                        old_cap = allocator_capital[alloc_name]
+                        new_cap = (0.10 * old_cap) + (0.90 * base_capital)
+                        allocator_capital[alloc_name] = new_cap
+                current_month = month_str
+
             exp_dir = OUTPUT_BASE_DIR / exp_name
             exp_dir.mkdir(parents=True, exist_ok=True)
             output_file = exp_dir / f"{month_str}.jsonl"
@@ -152,18 +205,38 @@ def main():
                 "tasks": tasks,
                 "model": MODEL_NAME
             }
+            # Parallel execution of allocators
+            import concurrent.futures
             
-            for alloc_name, alloc_func in ALLOCATORS.items():
+            def process_allocator(alloc_name, alloc_func):
+                current_cap = allocator_capital.get(alloc_name, 100.0)
                 decision = run_allocator(
                     alloc_func, 
                     f"{alloc_name}_allocator", 
                     date_str, 
                     tickers, 
                     tasks, 
-                    config["prompt_version"]
+                    config["prompt_version"],
+                    current_capital=current_cap,
+                    current_rf_rate=current_rf_rate
                 )
-                if decision:
-                    day_results[alloc_name] = decision
+                return alloc_name, decision, current_cap
+
+            with concurrent.futures.ThreadPoolExecutor(max_workers=len(ALLOCATORS)) as executor:
+                future_to_alloc = {
+                    executor.submit(process_allocator, name, func): name 
+                    for name, func in ALLOCATORS.items()
+                }
+                
+                for future in concurrent.futures.as_completed(future_to_alloc):
+                    alloc_name = future_to_alloc[future]
+                    try:
+                        name, decision, current_cap = future.result()
+                        if decision:
+                            day_results[name] = decision
+                            day_results[name]["starting_capital"] = current_cap
+                    except Exception as exc:
+                        logger.error(f"{alloc_name} generated an exception: {exc}")
 
             with open(output_file, "a") as f:
                 f.write(json.dumps(day_results) + "\n")

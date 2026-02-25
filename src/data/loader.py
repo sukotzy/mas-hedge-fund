@@ -233,6 +233,7 @@ class LocalDataLoader:
                 debt_to_equity=float(fund_row.get('debt_to_equity', 0)) if pd.notna(fund_row.get('debt_to_equity')) else None,
                 
                 # Required but missing fields (Set to None)
+                # Parse Market Cap = cshoq (millions) * prc (ohlcv snapshot)
                 market_cap=None,
                 enterprise_value=None,
                 price_to_sales_ratio=None,
@@ -268,6 +269,19 @@ class LocalDataLoader:
             )
             metrics_list.append(m)
             
+        # Post-process to inject market_cap using the latest price available up to end_date
+        if metrics_list:
+            prices = self.get_prices(ticker, "1900-01-01", end_date)
+            if prices:
+                latest_price = prices[-1].close
+                for m in metrics_list:
+                    # Fund row matched by report_period in the original loop
+                    matched_fund = fund_df[fund_df['rdq'] == pd.to_datetime(m.report_period)]
+                    if not matched_fund.empty:
+                        cshoq = matched_fund.iloc[0].get('cshoq')
+                        if pd.notna(cshoq) and latest_price > 0:
+                            m.market_cap = float(cshoq) * 1e6 * latest_price
+                            
         return metrics_list
 
     # --- Legacy/Pass-through methods for non-WRDS data (News/Insider) ---
@@ -342,24 +356,43 @@ class LocalDataLoader:
             'revenue': 'revtq', 
             'total_assets': 'atq',
             'total_liabilities': 'ltq',
-            'total_equity': 'seqq'
+            'total_equity': 'seqq',
+            'capital_expenditure': 'capxy',
+            'depreciation_and_amortization': 'dpq',
+            'working_capital': 'actq', # Using Current Assets as a proxy if isolated wc is needed, or actq - lctq
+            'total_debt': 'dlttq', # Long term debt
+            'cash_and_equivalents': 'cheq',
+            'free_cash_flow': 'fcf_proxy' # Computed below if missing
         }
         
         results = []
         for item_name in line_items:
             wrds_col = column_map.get(item_name)
-            if wrds_col and wrds_col in df.columns:
-                for _, row in df.iterrows():
+            
+            for _, row in df.iterrows():
+                val = None
+                if wrds_col == 'fcf_proxy':
+                    # Proxy calculation for FCF if exact column is missing
+                    ni = float(row.get('niq', 0)) if pd.notna(row.get('niq')) else 0
+                    dp = float(row.get('dpq', 0)) if pd.notna(row.get('dpq')) else 0
+                    capx = float(row.get('capxy', 0)) if pd.notna(row.get('capxy')) else 0
+                    val = ni + dp - capx
+                elif wrds_col == 'actq' and item_name == 'working_capital':
+                    act = float(row.get('actq', 0)) if pd.notna(row.get('actq')) else 0
+                    lct = float(row.get('lctq', 0)) if pd.notna(row.get('lctq')) else 0
+                    val = act - lct
+                elif wrds_col and wrds_col in df.columns:
                     val = row[wrds_col]
-                    if pd.notna(val):
-                        results.append(LineItem(
-                            ticker=ticker,
-                            report_period=row['rdq'].strftime('%Y-%m-%d'),
-                            period=period,
-                            currency="USD",
-                            line_item=item_name,
-                            value=float(val)
-                        ))
+                    
+                if val is not None and pd.notna(val):
+                    results.append(LineItem(
+                        ticker=ticker,
+                        report_period=row['rdq'].strftime('%Y-%m-%d'),
+                        period=period,
+                        currency="USD",
+                        line_item=item_name,
+                        value=float(val)
+                    ))
         return results
 
     def get_market_cap(self, ticker: str, end_date: str) -> Optional[float]:

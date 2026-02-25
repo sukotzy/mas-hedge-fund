@@ -208,7 +208,7 @@ def get_financial_data_manual(db, permnos, start_date='2015-01-01', end_date='20
         "niq", "revtq", "oiadpq", 
         "atq", "ltq", "actq", "lctq", 
         "dlttq", "dlcq", "seqq", "cshoq", 
-        "epspxq"
+        "epspxq", "dpq", "capxy", "cheq", "xintq"
     ]
     cols_str = ", ".join(columns)
 

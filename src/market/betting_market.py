@@ -22,16 +22,16 @@ class BettingMarket:
     def calculate_consensus(self) -> dict[str, float]:
         """
         Calculates the consensus value for each ticker based on the net capital flow.
-        Value = Sum(Bet_up) - Sum(Bet_down)
+        Value = Sum(Bet_long) - Sum(Bet_short)
         """
         consensus_values = {}
         
         for ticker, ticker_bets in self.bets.items():
-            total_bullish = sum(b.amount for b in ticker_bets if b.direction == MarketSignal.BULLISH)
-            total_bearish = sum(b.amount for b in ticker_bets if b.direction == MarketSignal.BEARISH)
+            total_long = sum(b.amount for b in ticker_bets if b.direction == MarketSignal.LONG)
+            total_short = sum(b.amount for b in ticker_bets if b.direction == MarketSignal.SHORT)
             
             # Net capital flow
-            consensus_values[ticker] = total_bullish - total_bearish
+            consensus_values[ticker] = total_long - total_short
             
         return consensus_values
 
@@ -40,19 +40,17 @@ class BettingMarket:
         Returns a summary of bets for a specific ticker.
         """
         if ticker not in self.bets:
-            return {"bullish": 0, "bearish": 0, "neutral": 0, "total_capital": 0}
+            return {"long": 0, "short": 0, "total_capital": 0, "consensus": 0}
             
         ticker_bets = self.bets[ticker]
-        total_bullish = sum(b.amount for b in ticker_bets if b.direction == MarketSignal.BULLISH)
-        total_bearish = sum(b.amount for b in ticker_bets if b.direction == MarketSignal.BEARISH)
-        total_neutral = sum(b.amount for b in ticker_bets if b.direction == MarketSignal.NEUTRAL)
-        
+        total_long = sum(b.amount for b in ticker_bets if b.direction == MarketSignal.LONG)
+        total_short = sum(b.amount for b in ticker_bets if b.direction == MarketSignal.SHORT)
+
         return {
-            "bullish": total_bullish,
-            "bearish": total_bearish,
-            "neutral": total_neutral,
-            "total_capital": total_bullish + total_bearish + total_neutral,
-            "consensus": total_bullish - total_bearish
+            "long": total_long,
+            "short": total_short,
+            "total_capital": sum(b.amount for b in ticker_bets),
+            "consensus": total_long - total_short
         }
 
 def betting_market_node(state: AgentState, agent_id: str = "betting_market"):
