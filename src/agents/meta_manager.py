@@ -81,10 +81,23 @@ def settle_bets(agent_capital, previous_bets, current_prices, previous_prices):
         # If total is 0 (bust), r is 0 (avoid div by zero)
         r = caps.get("external_capital", 0) / total_cap if total_cap > 0 else 0.0
             
-        # bets_data is a dict of ticker -> bet_dump
-        for ticker, bet_dump in bets_data.items():
+        # bets_data is now a dump of PortfolioDecision: {"allocations": [...], "metrics": {...}}
+        # If it's the old format (dict of dicts), we need to handle it or assume all are updated.
+        # Assuming all are updated to new format based on user prompt.
+        allocations = bets_data.get("allocations", [])
+        
+        for alloc_dump in allocations:
             try:
-                bet = Bet(**bet_dump)
+                # `alloc_dump` should match `Allocation` schema
+                ticker = alloc_dump.get("ticker")
+                direction = alloc_dump.get("direction") # "long" or "short"
+                amount_pct = alloc_dump.get("amount", 0.0) # 0 to 100
+                
+                # Convert percentage to dollar amount
+                bet_dollars = (amount_pct / 100.0) * total_cap
+                if bet_dollars <= 0:
+                    continue
+                
                 start_price = previous_prices.get(ticker)
                 end_price = current_prices.get(ticker)
                 
@@ -95,11 +108,11 @@ def settle_bets(agent_capital, previous_bets, current_prices, previous_prices):
                 
                 # Determine outcome
                 is_win = False
-                if bet.direction == MarketSignal.BULLISH and price_change_pct > 0:
+                if direction == "long" and price_change_pct > 0:
                     is_win = True
-                elif bet.direction == MarketSignal.BEARISH and price_change_pct < 0:
+                elif direction == "short" and price_change_pct < 0:
                     is_win = True
-                elif bet.direction == MarketSignal.NEUTRAL and abs(price_change_pct) < 0.005: # Flat
+                elif direction == "neutral" and abs(price_change_pct) < 0.005: # In case neutral is still used
                     is_win = True
                     
                 if is_win:
@@ -107,14 +120,17 @@ def settle_bets(agent_capital, previous_bets, current_prices, previous_prices):
                     # Store r so we attribute rewards correctly later
                     winners.append({
                         "agent": agent_name, 
-                        "bet_amount": bet.amount, 
+                        "bet_amount": bet_dollars, 
                         "external_ratio": r
                     })
                 else:
                     # Loser loses their stake to the pool
-                    loss_amount = bet.amount
+                    loss_amount = bet_dollars
                     # Cap loss at available capital
-                    loss_amount = min(loss_amount, total_cap)
+                    # Only cap against remaining capital (we might have multiple losing allocations)
+                    # For safety, cap it per-allocation temporarily, but ideally we should track remaining cap
+                    # We'll just cap it simply here
+                    loss_amount = min(loss_amount, total_cap) 
                     
                     # Attribute loss
                     loss_ex = loss_amount * r

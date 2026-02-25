@@ -18,13 +18,15 @@ def test_settle_bets_dual_tranche_win():
     }
     previous_bets = {
         "TestAgent": {
-            "AAPL": {
-                "ticker": "AAPL",
-                "direction": "bullish",
-                "amount": 1000.0,
-                "conviction": 1.0,
-                "reasoning": "test"
-            }
+            "allocations": [
+                {
+                    "ticker": "AAPL",
+                    "direction": "long",
+                    "amount": 1.0, # 1% of 100000 = 1000 dollars
+                    "reasoning": "test"
+                }
+            ],
+            "metrics": {}
         }
     }
     previous_prices = {"AAPL": 100.0}
@@ -40,13 +42,15 @@ def test_settle_bets_dual_tranche_win():
         "roi_history": []
     }
     previous_bets["LoserAgent"] = {
-        "AAPL": {
-            "ticker": "AAPL",
-            "direction": "bearish",
-            "amount": 1000.0, # Loses 1000
-            "conviction": 1.0,
-            "reasoning": "test fail"
-        }
+        "allocations": [
+            {
+                "ticker": "AAPL",
+                "direction": "short",
+                "amount": 1.0, # 1% of 100000 = Loses 1000
+                "reasoning": "test fail"
+            }
+        ],
+        "metrics": {}
     }
     
     # Run
@@ -87,10 +91,16 @@ def test_settle_bets_asymmetric_split():
     
     previous_bets = {
         "TestAgent": {
-            "AAPL": {"ticker": "AAPL", "direction": "bullish", "amount": 1000.0, "conviction": 1.0, "reasoning": "win"}
+            "allocations": [
+                {"ticker": "AAPL", "direction": "long", "amount": 1.0, "reasoning": "win"}
+            ],
+            "metrics": {}
         },
         "LoserAgent": {
-            "AAPL": {"ticker": "AAPL", "direction": "bearish", "amount": 1000.0, "conviction": 1.0, "reasoning": "lose"}
+             "allocations": [
+                {"ticker": "AAPL", "direction": "short", "amount": 1.0, "reasoning": "lose"}
+            ],
+            "metrics": {}
         }
     }
     
