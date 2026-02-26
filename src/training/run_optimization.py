@@ -1,7 +1,12 @@
 import json
 import logging
 import os
+import sys
 from pathlib import Path
+
+# Fix python path
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../..')))
+
 import pandas as pd
 from scipy.optimize import linprog
 import numpy as np
@@ -164,7 +169,9 @@ def process_day(day_data: dict, rf_rate: float):
         if agent not in day_data:
             continue
         decision = day_data[agent]
-        allocator_capital = decision.get("starting_capital", 100.0) # Used as weight
+        # Instead of generic 100.0, this will naturally read the updated agent_capital 
+        # that the new simulator pipeline writes into "starting_capital".
+        allocator_capital = decision.get("starting_capital", 100.0) 
         
         allocations = decision.get("allocations", [])
         for alloc in allocations:
@@ -181,8 +188,6 @@ def process_day(day_data: dict, rf_rate: float):
                 continue # Skip neutral/cash for now if it doesn't map directly
                 
             # Create Bet
-            # Use raw amount (0-100) or scale it by capital. 
-            # The prompt output amount is % of capital usually.
             bet_amt = (amount / 100.0) * allocator_capital
             
             b = Bet(
@@ -197,16 +202,18 @@ def process_day(day_data: dict, rf_rate: float):
     consensus_values = market.calculate_consensus()
     
     # 2. Get Risk Limits & Prices
-    # Filter out CASH from tickers sent to Risk Manager since RM fetches API prices
     rm_tickers = [t for t in tickers if t != "CASH"]
     risk_limits, prices = get_risk_limits(date_str, rm_tickers)
     
     # 3. Optimization
+    # The new pipeline will pass the actual calculated fund_wealth. If missing, defaults to 100k.
+    fund_wealth = day_data.get("fund_wealth", 100000.0) 
+    
     optimal_shares = solve_optimization(
         consensus_values=consensus_values,
         current_prices=prices,
         risk_limits=risk_limits,
-        initial_capital=100000.0,
+        initial_capital=fund_wealth,
         risk_free_rate=rf_rate
     )
     
@@ -216,16 +223,18 @@ def process_day(day_data: dict, rf_rate: float):
         "prices": prices,
         "risk_limits": risk_limits,
         "optimal_shares": optimal_shares,
-        "objective_cash_constant": 100000.0 * rf_rate
+        "fund_wealth": fund_wealth,
+        "objective_cash_constant": fund_wealth * rf_rate
     }
 
 
 def main():
-    input_file = Path("data/training_output_deepseek_2020h1/no_hint_wealth/2020_01.jsonl")
-    output_file = Path("data/optimization_results_2020_01.jsonl")
+    # Will read from the enriched output of the upstream wealth simulator
+    input_file = Path("data/enriched_decisions.jsonl")
+    output_file = Path("data/optimization_results_final.jsonl")
     
     if not input_file.exists():
-        logger.error(f"Input file not found: {input_file}")
+        logger.error(f"Input file not found: {input_file}. Please run simulate_wealth_trajectory.py first.")
         return
         
     logger.info(f"Processing optimization on {input_file}")
@@ -249,8 +258,10 @@ def main():
             date_str = day_data.get('date')
             rf_rate = get_dynamic_rf_rate(date_str, rf_df)
             
+            # Pure functional optimization pass. No state maintained across loop iterations.
             res = process_day(day_data, rf_rate=rf_rate) 
             results.append(res)
+            
         except Exception as e:
             logger.error(f"Error processing {day_data.get('date')}: {e}")
             

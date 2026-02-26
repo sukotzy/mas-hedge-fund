@@ -61,16 +61,15 @@ def meta_manager_agent(state: AgentState, agent_id: str = "meta_manager_agent"):
 
 def settle_bets(agent_capital, previous_bets, current_prices, previous_prices):
     """
-    Settles bets based on price changes using Dual-Tranche Attribution.
-    Zero-Sum Game: Losers pay into a pool, Winners take from the pool.
+    Settles bets based on relative performance (Alpha) using Dual-Tranche Attribution.
+    Zero-Sum Game: Agents who underperform the average pay into a pool; 
+                   Agents who outperform take from the pool.
     """
-    winners = []
-    losers = []
-    total_loss_pool = 0.0
+    agent_returns = {}
+    agent_ratios = {} # Store the external ratio (r) for each agent
     
-    # 1. Determine Win/Loss for each bet
+    # 1. Calculate each agent's true daily return
     for agent_name, bets_data in previous_bets.items():
-        # Skip non-analyst agents
         if agent_name not in agent_capital:
             continue
             
@@ -78,25 +77,25 @@ def settle_bets(agent_capital, previous_bets, current_prices, previous_prices):
         total_cap = caps.get("internal_capital", 0) + caps.get("external_capital", 0)
         
         # Calculate External Ratio (r)
-        # If total is 0 (bust), r is 0 (avoid div by zero)
         r = caps.get("external_capital", 0) / total_cap if total_cap > 0 else 0.0
+        agent_ratios[agent_name] = r
             
-        # bets_data is now a dump of PortfolioDecision: {"allocations": [...], "metrics": {...}}
-        # If it's the old format (dict of dicts), we need to handle it or assume all are updated.
-        # Assuming all are updated to new format based on user prompt.
         allocations = bets_data.get("allocations", [])
+        total_gross_amount = sum(alloc.get("amount", 0.0) for alloc in allocations)
         
+        if total_gross_amount == 0:
+            agent_returns[agent_name] = 0.0
+            continue
+            
+        daily_return = 0.0
         for alloc_dump in allocations:
             try:
-                # `alloc_dump` should match `Allocation` schema
                 ticker = alloc_dump.get("ticker")
                 direction = alloc_dump.get("direction") # "long" or "short"
                 amount_pct = alloc_dump.get("amount", 0.0) # 0 to 100
                 
-                # Convert percentage to dollar amount
-                bet_dollars = (amount_pct / 100.0) * total_cap
-                if bet_dollars <= 0:
-                    continue
+                # Weight of this asset within the agent's portfolio
+                weight = amount_pct / total_gross_amount
                 
                 start_price = previous_prices.get(ticker)
                 end_price = current_prices.get(ticker)
@@ -106,92 +105,50 @@ def settle_bets(agent_capital, previous_bets, current_prices, previous_prices):
                     
                 price_change_pct = (end_price - start_price) / start_price
                 
-                # Determine outcome
-                is_win = False
-                if direction == "long" and price_change_pct > 0:
-                    is_win = True
-                elif direction == "short" and price_change_pct < 0:
-                    is_win = True
-                    
-                if is_win:
-                    # Winner keeps their stake + share of pool later
-                    # Store r so we attribute rewards correctly later
-                    winners.append({
-                        "agent": agent_name, 
-                        "bet_amount": bet_dollars, 
-                        "external_ratio": r
-                    })
-                else:
-                    # Loser loses their stake to the pool
-                    loss_amount = bet_dollars
-                    # Cap loss at available capital
-                    # Only cap against remaining capital (we might have multiple losing allocations)
-                    # For safety, cap it per-allocation temporarily, but ideally we should track remaining cap
-                    # We'll just cap it simply here
-                    loss_amount = min(loss_amount, total_cap) 
-                    
-                    # Attribute loss
-                    loss_ex = loss_amount * r
-                    loss_in = loss_amount * (1 - r)
-                    
-                    agent_capital[agent_name]["external_capital"] -= loss_ex
-                    agent_capital[agent_name]["internal_capital"] -= loss_in
-                    # Sync legacy field
-                    agent_capital[agent_name]["allocated_capital"] = agent_capital[agent_name]["external_capital"]
-                    
-                    total_loss_pool += loss_amount
-                    losers.append({"agent": agent_name, "loss": loss_amount})
+                if direction == "long":
+                    daily_return += weight * price_change_pct
+                elif direction == "short":
+                    daily_return -= weight * price_change_pct
                     
             except Exception as e:
-                print(f"Error settling bet for {agent_name}: {e}")
+                print(f"Error calculating return for {agent_name} on {ticker}: {e}")
+                
+        agent_returns[agent_name] = daily_return
 
-    # 2. Redistribute Loss Pool to Winners
-    if total_loss_pool > 0 and winners:
-        total_winning_stake = sum(w["bet_amount"] for w in winners)
+    if not agent_returns:
+        return agent_capital
+
+    # 2. Calculate the average return (Benchmark)
+    avg_return = sum(agent_returns.values()) / len(agent_returns)
+    
+    # 3. Alpha-based Zero-Sum Settlement
+    # Determines how fast capital moves between agents. 
+    # Can be tuned later based on volatility or desired convergence speed.
+    TRANSFER_RATE = 1.0 
+    
+    for agent_name, ret in agent_returns.items():
+        # Alpha is the excess return above the average (can be negative)
+        alpha = ret - avg_return
         
-        if total_winning_stake > 0:
-            for w in winners:
-                agent_name = w["agent"]
-                share = w["bet_amount"] / total_winning_stake
-                reward = total_loss_pool * share
-                
-                # Attribute Reward using the ratio at the time of betting (or current? usually time of betting)
-                r = w["external_ratio"]
-                reward_ex = reward * r
-                reward_in = reward * (1 - r)
-                
-                agent_capital[agent_name]["external_capital"] += reward_ex
-                agent_capital[agent_name]["internal_capital"] += reward_in
-                # Sync legacy field
-                agent_capital[agent_name]["allocated_capital"] = agent_capital[agent_name]["external_capital"]
-                
-                # Update ROI history
-                roi = reward / w["bet_amount"]
-                agent_capital[agent_name]["roi_history"].append(roi)
-        else:
-            # Refund if something weird happens
-            for l in losers:
-                r = agent_capital[l["agent"]]["external_capital"] / (agent_capital[l["agent"]]["external_capital"] + agent_capital[l["agent"]]["internal_capital"] + l["loss"])
-                agent_capital[l["agent"]]["external_capital"] += l["loss"] * r
-                agent_capital[l["agent"]]["internal_capital"] += l["loss"] * (1-r)
-                
-    elif total_loss_pool > 0 and not winners:
-        # Refund to losers
-        for l in losers:
-             # This reconstruction of r is tricky if we don't store it. 
-             # Simpler to just add back to where it fits, or assume r hasn't changed much.
-             # Ideally we should have stored l's ratio too. 
-             # For now, let's just add back to external mostly to be safe? 
-             # No, let's try to be fair. 
-             # We can't perfectly reconstruct R without storing it.
-             # Taking a shortcut: add back proportionally to current cap (approximate).
-             total = agent_capital[l["agent"]]["external_capital"] + agent_capital[l["agent"]]["internal_capital"]
-             if total > 0:
-                 r = agent_capital[l["agent"]]["external_capital"] / total
-             else: 
-                 r = 0.5 # Default
-             
-             agent_capital[l["agent"]]["external_capital"] += l["loss"] * r
-             agent_capital[l["agent"]]["internal_capital"] += l["loss"] * (1-r)
+        caps = agent_capital[agent_name]
+        total_cap = caps.get("internal_capital", 0) + caps.get("external_capital", 0)
+        
+        # The total dollar amount to transfer (win or lose from/to the pool)
+        transfer_amount = total_cap * alpha * TRANSFER_RATE
+        
+        # Attribute the transfer proportionally to Internal and External tranches
+        r = agent_ratios[agent_name]
+        transfer_ex = transfer_amount * r
+        transfer_in = transfer_amount * (1 - r)
+        
+        # Apply the transfer
+        caps["external_capital"] = max(0, caps.get("external_capital", 0) + transfer_ex)
+        caps["internal_capital"] = max(0, caps.get("internal_capital", 0) + transfer_in)
+        
+        # Sync legacy field
+        caps["allocated_capital"] = caps["external_capital"]
+        
+        # Update ROI history with raw return (not alpha)
+        caps.setdefault("roi_history", []).append(ret)
 
     return agent_capital
