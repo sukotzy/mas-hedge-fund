@@ -61,7 +61,7 @@ def technical_allocator(state: AgentState, agent_id: str = "technical_allocator"
             task = hint_map[ticker]
             action = task.get('action', 'analyze')
             if action != 'analyze':
-                hint_str = f"  - Quantitative Signal: {action.upper()} (Reason: {task.get('reason', 'N/A')})\n"
+                hint_str = f"  - Quantitative Signal: {action.upper()} (Reason: {task.get('reason', 'N/A')}). Note: Use this only as a reference. You MUST make your own judgment based on your specific strategy.\n"
         
         # Format Summary
         summary = (
@@ -119,7 +119,9 @@ def technical_allocator(state: AgentState, agent_id: str = "technical_allocator"
         f"   - Pure Cash: Long CASH $100. Math: 100 - 0 = 100.0.\n"
         f"5. For stocks: 'long' = Bullish Setup, 'short' = Bearish Setup.\n"
         f"6. For CASH: 'long' = Lending/Holding cash to earn the risk-free rate, 'short' = Borrowing cash to deploy leverage.\n"
-        f"7. Do NOT allocate to an asset if your conviction is low. Be decisive."
+        f"7. Do NOT allocate to an asset if your conviction is low. Be decisive.\n"
+        f"8. STAYING OUT: If you decide the market is too risky and want to hold no stocks, you MUST explicitly output a single allocation: 'long' CASH for 100.0. Do NOT output an empty list.\n"
+        f"9. NO SPLIT CASH: Do not split CASH into multiple allocations. Provide only ONE aggregated row for CASH (either 'long' or 'short')."
     )
     
     decision = call_llm(prompt, PortfolioDecision, agent_name=agent_id, state=state)

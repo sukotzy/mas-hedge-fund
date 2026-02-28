@@ -91,6 +91,8 @@ def news_sentiment_allocator(state: AgentState, agent_id: str = "news_sentiment_
         f"5. For stocks: 'long' = Bullish, 'short' = Bearish.\n"
         f"6. For CASH: 'long' = Lending/Holding cash to earn the risk-free rate, 'short' = Borrowing cash to deploy leverage.\n"
         f"7. Do NOT allocate to an asset if your conviction is low. Be decisive.\n"
+        f"8. STAYING OUT: If you decide the market is too risky and want to hold no stocks, you MUST explicitly output a single allocation: 'long' CASH for 100.0. Do NOT output an empty list.\n"
+        f"9. NO SPLIT CASH: Do not split CASH into multiple allocations. Provide only ONE aggregated row for CASH (either 'long' or 'short').\n"
     )
     
     # Call LLM for the final decision
@@ -268,7 +270,7 @@ def _analyze_and_allocate_global(tickers, end_date, api_key, agent_id, state):
             task = hint_map[ticker]
             action = task.get('action', 'analyze')
             if action != 'analyze':
-                hint_str = f"Quantitative Signal: {action.upper()} (Reason: {task.get('reason', 'N/A')})\\n"
+                hint_str = f"Quantitative Signal: {action.upper()} (Reason: {task.get('reason', 'N/A')}). Note: Use this only as a reference. You MUST make your own judgment based on your specific strategy.\\n"
 
         # Pass start_date
         company_news = get_company_news(ticker, end_date, start_date=start_date, limit=5, api_key=api_key)
@@ -301,13 +303,19 @@ def _analyze_and_allocate_global(tickers, end_date, api_key, agent_id, state):
             f"You must allocate capital across these assets to maximize your betting return. Treat CASH as a peer asset.\\n\\n"
             f"{full_context}\\n\\n"
             f"Constraints:\\n"
-            f"1. You MUST allocate across the assets. The Net Exposure (Sum of 'long' amounts MINUS Sum of 'short' amounts) MUST exactly equal 100.0.\\n"
-            f"   - Leverage Example: Long $150 in Stocks, Short $50 in CASH. Net = 150 - 50 = 100.\\n"
-            f"   - Shorting Example: Short $50 in Stocks, Long $150 in CASH. Net = 150 - 50 = 100.\\n"
-            f"2. Every allocated asset (including CASH) MUST have a direction: 'long' or 'short'.\\n"
-            f"3. For stocks: 'long' = Bullish, 'short' = Bearish.\\n"
-            f"4. For CASH: 'long' = Lending/Holding cash to earn the risk-free rate, 'short' = Borrowing cash to deploy leverage.\\n"
-            f"5. Do NOT allocate to an asset if your conviction is low. Be decisive.\\n"
+            f"1. MATHEMATICAL RULE: The Net Exposure MUST exactly equal 100.0.\\n"
+            f"   Calculation: (Sum of ALL 'long' amounts) - (Sum of ALL 'short' amounts) = 100.0\\n"
+            f"2. IMPORTANT: Every single 'amount' MUST be a strictly POSITIVE number (e.g., 50.0, never -50.0). The 'direction' field ('long' or 'short') handles the math sign.\\n"
+            f"3. GROSS EXPOSURE LIMIT: To prevent excessive risk, the sum of ALL amounts (long + short) should not exceed 1000.0.\\n"
+            f"4. MATH EXAMPLES:\\n"
+            f"   - Leverage: Long Stocks $150, Short CASH $50. Math: 150 - 50 = 100.0.\\n"
+            f"   - Hedging: Long Stocks $120, Short Stocks $20, Long CASH $0. Math: 120 - 20 = 100.0.\\n"
+            f"   - Pure Cash: Long CASH $100. Math: 100 - 0 = 100.0.\\n"
+            f"5. For stocks: 'long' = Bullish, 'short' = Bearish.\\n"
+            f"6. For CASH: 'long' = Lending/Holding cash to earn the risk-free rate, 'short' = Borrowing cash to deploy leverage.\\n"
+            f"7. Do NOT allocate to an asset if your conviction is low. Be decisive.\\n"
+            f"8. STAYING OUT: If you decide the market is too risky and want to hold no stocks, you MUST explicitly output a single allocation: 'long' CASH for 100.0. Do NOT output an empty list.\\n"
+            f"9. NO SPLIT CASH: Do not split CASH into multiple allocations. Provide only ONE aggregated row for CASH (either 'long' or 'short').\\n"
         )
     else:
         # Variant Group: Wealth Consequence Prompt (Default)
@@ -319,13 +327,19 @@ def _analyze_and_allocate_global(tickers, end_date, api_key, agent_id, state):
             f"Allocate your capital based on your conviction in the signal strength. Treat CASH as a peer asset.\\n\\n"
             f"{full_context}\\n\\n"
             f"Constraints:\\n"
-            f"1. You MUST allocate across the assets. The Net Exposure (Sum of 'long' amounts MINUS Sum of 'short' amounts) MUST exactly equal 100.0.\\n"
-            f"   - Leverage Example: Long $150 in Stocks, Short $50 in CASH. Net = 150 - 50 = 100.\\n"
-            f"   - Shorting Example: Short $50 in Stocks, Long $150 in CASH. Net = 150 - 50 = 100.\\n"
-            f"2. Every allocated asset (including CASH) MUST have a direction: 'long' or 'short'.\\n"
-            f"3. For stocks: 'long' = Bullish, 'short' = Bearish.\\n"
-            f"4. For CASH: 'long' = Lending/Holding cash to earn the risk-free rate, 'short' = Borrowing cash to deploy leverage.\\n"
-            f"5. Do NOT allocate to an asset if your conviction is low. Be decisive.\\n"
+            f"1. MATHEMATICAL RULE: The Net Exposure MUST exactly equal 100.0.\\n"
+            f"   Calculation: (Sum of ALL 'long' amounts) - (Sum of ALL 'short' amounts) = 100.0\\n"
+            f"2. IMPORTANT: Every single 'amount' MUST be a strictly POSITIVE number (e.g., 50.0, never -50.0). The 'direction' field ('long' or 'short') handles the math sign.\\n"
+            f"3. GROSS EXPOSURE LIMIT: To prevent excessive risk, the sum of ALL amounts (long + short) should not exceed 1000.0.\\n"
+            f"4. MATH EXAMPLES:\\n"
+            f"   - Leverage: Long Stocks $150, Short CASH $50. Math: 150 - 50 = 100.0.\\n"
+            f"   - Hedging: Long Stocks $120, Short Stocks $20, Long CASH $0. Math: 120 - 20 = 100.0.\\n"
+            f"   - Pure Cash: Long CASH $100. Math: 100 - 0 = 100.0.\\n"
+            f"5. For stocks: 'long' = Bullish, 'short' = Bearish.\\n"
+            f"6. For CASH: 'long' = Lending/Holding cash to earn the risk-free rate, 'short' = Borrowing cash to deploy leverage.\\n"
+            f"7. Do NOT allocate to an asset if your conviction is low. Be decisive.\\n"
+            f"8. STAYING OUT: If you decide the market is too risky and want to hold no stocks, you MUST explicitly output a single allocation: 'long' CASH for 100.0. Do NOT output an empty list.\\n"
+            f"9. NO SPLIT CASH: Do not split CASH into multiple allocations. Provide only ONE aggregated row for CASH (either 'long' or 'short').\\n"
         )
     
     # Call LLM
