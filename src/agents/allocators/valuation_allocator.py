@@ -57,20 +57,49 @@ def valuation_allocator(state: AgentState, agent_id: str = "valuation_allocator"
         if not line_items:
             universe_summaries.append(f"Stock {ticker}: No line items found.")
             continue
-            
-        li_curr = line_items[0]
+        # Group LineItems flexibly to handle slightly mismatched report_periods
+        line_items.sort(key=lambda x: x.report_period, reverse=True)
+        from datetime import datetime
+        grouped_financials = []
+        current_group = {}
+        current_date_obj: datetime | None = None
         
-        # Fix 2: Thoroughly filter None values for safety
-        net_income = getattr(li_curr, 'net_income', None) or 0
-        depreciation = getattr(li_curr, 'depreciation_and_amortization', None) or 0
-        capex = getattr(li_curr, 'capital_expenditure', None) or 0
-        total_debt = getattr(li_curr, 'total_debt', None) or 0
-        cash_equiv = getattr(li_curr, 'cash_and_equivalents', None) or 0
+        for item in line_items:
+            try:
+                item_date = datetime.strptime(item.report_period, "%Y-%m-%d")
+            except ValueError:
+                continue
+                
+            if current_date_obj is None or (current_date_obj - item_date).days > 30:
+                if current_group:
+                    grouped_financials.append(current_group)
+                current_group = {item.line_item: item.value}
+                current_date_obj = item_date
+            else:
+                if item.line_item not in current_group:
+                    current_group[item.line_item] = item.value
+                    
+        if current_group:
+            grouped_financials.append(current_group)
+            
+        if not grouped_financials:
+            universe_summaries.append(f"Stock {ticker}: Insufficient financial periods combined.")
+            continue
+            
+        li_curr = grouped_financials[0]
+        li_prev = grouped_financials[1] if len(grouped_financials) > 1 else {}
+        
+        # Thoroughly filter None values for safety
+        net_income = li_curr.get('net_income') or 0
+        depreciation = li_curr.get('depreciation_and_amortization') or 0
+        capex = li_curr.get('capital_expenditure') or 0
+        total_debt = li_curr.get('total_debt') or 0
+        cash_equiv = li_curr.get('cash_and_equivalents') or 0
         
         # --- Run Models ---
         wc_change = 0
-        if len(line_items) > 1 and getattr(li_curr, 'working_capital', None) and getattr(line_items[1], 'working_capital', None):
-             wc_change = li_curr.working_capital - line_items[1].working_capital
+        if li_curr.get('working_capital') and li_prev.get('working_capital'):
+             wc_change = li_curr['working_capital'] - li_prev['working_capital']
              
         owner_val = calculate_owner_earnings_value(
             net_income, 
@@ -84,7 +113,7 @@ def valuation_allocator(state: AgentState, agent_id: str = "valuation_allocator"
         ev_val = calculate_ev_ebitda_value(metrics)
         
         # 3. DCF
-        fcf_history = [getattr(li, 'free_cash_flow', None) or 0 for li in line_items]
+        fcf_history = [group.get('free_cash_flow') or 0 for group in grouped_financials]
         
         wacc = calculate_wacc(
             market_cap, 
@@ -125,11 +154,13 @@ def valuation_allocator(state: AgentState, agent_id: str = "valuation_allocator"
             if action != 'analyze':
                 hint_str = f"  - Quantitative Signal: {action.upper()} (Reason: {task.get('reason', 'N/A')})\n"
                 
+        val_str = f"${intrinsic_value:,.0f}" if intrinsic_value > 0 else "N/A (Missing Financials)"
+        gap_str = f"{gap:+.1%}" if intrinsic_value > 0 else "N/A"
         summary = (
             f"Stock {ticker}:\n"
             f"{hint_str}"
             f"  - Price (Market Cap): ${market_cap:,.0f}\n"
-            f"  - Intrinsic Value: ${intrinsic_value:,.0f} (Gap: {gap:+.1%})\n"
+            f"  - Intrinsic Value: {val_str} (Gap: {gap_str})\n"
             f"  - Breakdown: DCF ${dcf_val:,.0f} | Owner Earnings ${owner_val:,.0f} | EV/EBITDA Implied ${ev_val:,.0f} | Residual Income ${rim_val:,.0f}\n"
             f"  - Key Inputs: WACC {wacc:.1%} | Exp. Growth {(m.earnings_growth or 0):.1%}"
         )

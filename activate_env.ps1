@@ -1,7 +1,7 @@
-$EnvPath = Join-Path $PSScriptRoot "hf2\Scripts\Activate.ps1"
+$EnvPath = Join-Path $PSScriptRoot "hf\Scripts\Activate.ps1"
 if (Test-Path $EnvPath) {
-    Write-Host "Activating hf2 environment..." -ForegroundColor Green
+    Write-Host "Activating hf environment..." -ForegroundColor Green
     & $EnvPath
 } else {
-    Write-Error "Could not find hf2 environment at $EnvPath"
+    Write-Error "Could not find hf environment at $EnvPath"
 }

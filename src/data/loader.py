@@ -377,7 +377,7 @@ class LocalDataLoader:
                     dp = float(row.get('dpq', 0)) if pd.notna(row.get('dpq')) else 0
                     capx = float(row.get('capxy', 0)) if pd.notna(row.get('capxy')) else 0
                     val = ni + dp - capx
-                elif wrds_col == 'actq' and item_name == 'working_capital':
+                elif item_name == 'working_capital':
                     act = float(row.get('actq', 0)) if pd.notna(row.get('actq')) else 0
                     lct = float(row.get('lctq', 0)) if pd.notna(row.get('lctq')) else 0
                     val = act - lct
@@ -391,7 +391,7 @@ class LocalDataLoader:
                         period=period,
                         currency="USD",
                         line_item=item_name,
-                        value=float(val)
+                        value=float(val) * 1e6
                     ))
         return results
 

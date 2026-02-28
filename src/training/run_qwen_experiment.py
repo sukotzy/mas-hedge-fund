@@ -1,10 +1,19 @@
 import pandas as pd
+import os
 import json
 import logging
-import os
+from datetime import datetime
+from typing import Dict, List, Any
+import subprocess
+
+# Force local data pipeline since API is disconnected
+os.environ["USE_LOCAL_DATA"] = "true"
+
+from langchain_core.messages import HumanMessage
+from src.schemas import Bet, MarketSignal
+
 from pathlib import Path
 from tqdm import tqdm
-from datetime import datetime
 import concurrent.futures
 from dotenv import load_dotenv
 
@@ -138,9 +147,6 @@ def main():
     all_dates = sorted(list(inputs[list(inputs.keys())[0]].index))
     target_dates = [d for d in all_dates if START_DATE <= pd.Timestamp(d).strftime("%Y-%m-%d") <= END_DATE]
     
-    # --- TEST LIMIT FOR 1 DAY RUN ---
-    # target_dates = target_dates[:1]
-    
     logger.info(f"Processing {len(target_dates)} days for full experiment...")
     
     for exp_name, config in EXPERIMENTS.items():
@@ -240,6 +246,18 @@ def main():
 
             with open(output_file, "a") as f:
                 f.write(json.dumps(day_results) + "\n")
+                
+            # --- PRINT DAILY DECISIONS ---
+            print(f"\n{'='*50}")
+            print(f"RESULTS FOR {date_str} (Experiment: {exp_name})")
+            print(f"{'='*50}")
+            for alloc_name, dec in day_results.items():
+                if alloc_name not in ["date", "tickers", "tasks", "model"]:
+                    print(f"\n[{alloc_name.upper()}]")
+                    for alloc in dec.get("allocations", []):
+                        print(f"  -> {alloc['direction'].upper()} {alloc['ticker']}: {alloc['amount']:.2f}")
+                        print(f"     Reasoning: {alloc['reasoning']}")
+                    print(f"  -> Metrics: Net={dec['metrics']['original_net_exposure']:.2f}, Gross={dec['metrics']['original_gross_exposure']:.2f}")
 
     logger.info("Qwen-Max Experiment Complete.")
 

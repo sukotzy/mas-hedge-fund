@@ -3,10 +3,10 @@ echo [1/4] Upgrading pip...
 python -m pip install --upgrade pip
 
 echo [2/4] Creating virtual environment...
-python -m venv samplehf-env
+python -m venv hf
 
 echo [3/4] Activating environment and installing dependencies...
-call samplehf-env\Scripts\activate.bat
+call hf\Scripts\activate.bat
 pip install -r requirements.txt
 
 echo [4/4] Verifying DashScope integration...
@@ -14,6 +14,6 @@ python -c "from langchain_community.chat_models import ChatTongyi; print('✅ Ch
 
 echo.
 echo 🎉 Setup complete! Run:
-echo samplehf-env\Scripts\activate
+echo hf\Scripts\activate
 echo python src/main.py --ticker AAPL --model-name qwen-max --model-provider Dashscope
 pause
