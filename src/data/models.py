@@ -79,6 +79,20 @@ class LineItemResponse(BaseModel):
     search_results: list[LineItem]
 
 
+class ValuationMetrics(BaseModel):
+    ticker: str
+    report_period: str
+    period: str
+    currency: str
+    net_income: float | None = None
+    depreciation_and_amortization: float | None = None
+    capital_expenditure: float | None = None
+    working_capital: float | None = None
+    total_debt: float | None = None
+    cash_and_equivalents: float | None = None
+    free_cash_flow: float | None = None
+
+
 class InsiderTrade(BaseModel):
     ticker: str
     issuer: str | None

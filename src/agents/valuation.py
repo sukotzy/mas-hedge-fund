@@ -49,72 +49,24 @@ def valuation_analyst_agent(state: AgentState, agent_id: str = "valuation_analys
 
         # --- Enhanced line‑items ---
         progress.update_status(agent_id, ticker, "Gathering comprehensive line items")
-        raw_line_items = search_line_items(
-            ticker=ticker,
-            line_items=[
-                "free_cash_flow",
-                "net_income",
-                "depreciation_and_amortization",
-                "capital_expenditure",
-                "working_capital",
-                "total_debt",
-                "cash_and_equivalents", 
-                "interest_expense",
-                "revenue",
-                "operating_income",
-                "ebit",
-                "ebitda"
-            ],
-            end_date=end_date,
-            period="ttm",
-            limit=30, # Increased limit to ensure we get enough data points across multiple periods
-            api_key=api_key,
+        metrics_history = search_line_items(
+            ticker=ticker, 
+            line_items=[], # No longer needed by local loader
+            end_date=end_date, period="ttm", limit=4, api_key=api_key
         )
-        
-        # Group LineItems flexibly to handle slightly mismatched report_periods
-        # E.g. net_income on 2019-12-31 but capital_expenditure on 2019-12-30
-        
-        # 1. First, sort all items by date descending
-        raw_line_items.sort(key=lambda x: x.report_period, reverse=True)
-        
-        grouped_financials = []
-        current_group = {}
-        current_date_obj: datetime | None = None
-        
-        for item in raw_line_items:
-            try:
-                item_date = datetime.strptime(item.report_period, "%Y-%m-%d")
-            except ValueError:
-                continue
-                
-            # Start a new group if this is the first item or it's > 30 days older than the current group's date
-            if current_date_obj is None or (current_date_obj - item_date).days > 30:
-                if current_group:
-                    grouped_financials.append(current_group)
-                current_group = {item.line_item: item.value}
-                current_date_obj = item_date
-            else:
-                # Same period bucket (within 30 days)
-                # Only set if not already present (prefer newer data if multiple)
-                if item.line_item not in current_group:
-                    current_group[item.line_item] = item.value
-                    
-        if current_group:
-            grouped_financials.append(current_group)
-        
-        if len(grouped_financials) < 2:
-            progress.update_status(agent_id, ticker, "Failed: Insufficient financial periods combined")
+        if not metrics_history:
+            progress.update_status(agent_id, ticker, "Failed: No financial metrics found")
             continue
             
-        li_curr = grouped_financials[0]
-        li_prev = grouped_financials[1]
+        vm_curr = metrics_history[0]
+        vm_prev = metrics_history[1] if len(metrics_history) > 1 else None
 
         # ------------------------------------------------------------------
         # Valuation models
         # ------------------------------------------------------------------
         # Handle potential None values for working capital
-        wc_curr = li_curr.get('working_capital')
-        wc_prev = li_prev.get('working_capital')
+        wc_curr = vm_curr.working_capital
+        wc_prev = vm_prev.working_capital if vm_prev else None
         if wc_curr is not None and wc_prev is not None:
             wc_change = wc_curr - wc_prev
         else:
@@ -122,9 +74,9 @@ def valuation_analyst_agent(state: AgentState, agent_id: str = "valuation_analys
 
         # Owner Earnings
         owner_val = calculate_owner_earnings_value(
-            net_income=li_curr.get('net_income'),
-            depreciation=li_curr.get('depreciation_and_amortization'),
-            capex=li_curr.get('capital_expenditure'),
+            net_income=vm_curr.net_income,
+            depreciation=vm_curr.depreciation_and_amortization,
+            capex=vm_curr.capital_expenditure,
             working_capital_change=wc_change,
             growth_rate=most_recent_metrics.earnings_growth or 0.05,
         )
@@ -135,18 +87,14 @@ def valuation_analyst_agent(state: AgentState, agent_id: str = "valuation_analys
         # Calculate WACC
         wacc = calculate_wacc(
             market_cap=most_recent_metrics.market_cap or 0,
-            total_debt=li_curr.get('total_debt'),
-            cash=li_curr.get('cash_and_equivalents'),
+            total_debt=vm_curr.total_debt,
+            cash=vm_curr.cash_and_equivalents,
             interest_coverage=most_recent_metrics.interest_coverage,
             debt_to_equity=most_recent_metrics.debt_to_equity,
         )
         
         # Prepare FCF history for enhanced DCF
-        fcf_history = []
-        for group in grouped_financials:
-            fcf = group.get('free_cash_flow')
-            if fcf is not None:
-                fcf_history.append(fcf)
+        fcf_history = [vm.free_cash_flow for vm in metrics_history if vm.free_cash_flow is not None]
         
         # Enhanced DCF with scenarios
         dcf_results = calculate_dcf_scenarios(

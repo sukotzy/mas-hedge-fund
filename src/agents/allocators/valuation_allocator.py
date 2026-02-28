@@ -48,58 +48,29 @@ def valuation_allocator(state: AgentState, agent_id: str = "valuation_allocator"
              continue
         
         # 2. Fetch Line Items for DCF
-        line_items = search_line_items(
+        metrics_history = search_line_items(
             ticker=ticker, 
-            line_items=["free_cash_flow", "net_income", "depreciation_and_amortization", 
-                        "capital_expenditure", "working_capital", "total_debt", "cash_and_equivalents"],
+            line_items=[], # No longer needed by local loader
             end_date=end_date, period="ttm", limit=4, api_key=api_key
         )
-        if not line_items:
-            universe_summaries.append(f"Stock {ticker}: No line items found.")
-            continue
-        # Group LineItems flexibly to handle slightly mismatched report_periods
-        line_items.sort(key=lambda x: x.report_period, reverse=True)
-        from datetime import datetime
-        grouped_financials = []
-        current_group = {}
-        current_date_obj: datetime | None = None
-        
-        for item in line_items:
-            try:
-                item_date = datetime.strptime(item.report_period, "%Y-%m-%d")
-            except ValueError:
-                continue
-                
-            if current_date_obj is None or (current_date_obj - item_date).days > 30:
-                if current_group:
-                    grouped_financials.append(current_group)
-                current_group = {item.line_item: item.value}
-                current_date_obj = item_date
-            else:
-                if item.line_item not in current_group:
-                    current_group[item.line_item] = item.value
-                    
-        if current_group:
-            grouped_financials.append(current_group)
-            
-        if not grouped_financials:
-            universe_summaries.append(f"Stock {ticker}: Insufficient financial periods combined.")
+        if not metrics_history:
+            universe_summaries.append(f"Stock {ticker}: No financial metrics found.")
             continue
             
-        li_curr = grouped_financials[0]
-        li_prev = grouped_financials[1] if len(grouped_financials) > 1 else {}
+        vm_curr = metrics_history[0]
+        vm_prev = metrics_history[1] if len(metrics_history) > 1 else None
         
         # Thoroughly filter None values for safety
-        net_income = li_curr.get('net_income') or 0
-        depreciation = li_curr.get('depreciation_and_amortization') or 0
-        capex = li_curr.get('capital_expenditure') or 0
-        total_debt = li_curr.get('total_debt') or 0
-        cash_equiv = li_curr.get('cash_and_equivalents') or 0
+        net_income = vm_curr.net_income or 0
+        depreciation = vm_curr.depreciation_and_amortization or 0
+        capex = vm_curr.capital_expenditure or 0
+        total_debt = vm_curr.total_debt or 0
+        cash_equiv = vm_curr.cash_and_equivalents or 0
         
         # --- Run Models ---
         wc_change = 0
-        if li_curr.get('working_capital') and li_prev.get('working_capital'):
-             wc_change = li_curr['working_capital'] - li_prev['working_capital']
+        if vm_curr.working_capital is not None and vm_prev is not None and vm_prev.working_capital is not None:
+             wc_change = vm_curr.working_capital - vm_prev.working_capital
              
         owner_val = calculate_owner_earnings_value(
             net_income, 
@@ -113,7 +84,7 @@ def valuation_allocator(state: AgentState, agent_id: str = "valuation_allocator"
         ev_val = calculate_ev_ebitda_value(metrics)
         
         # 3. DCF
-        fcf_history = [group.get('free_cash_flow') or 0 for group in grouped_financials]
+        fcf_history = [vm.free_cash_flow or 0 for vm in metrics_history]
         
         wacc = calculate_wacc(
             market_cap, 

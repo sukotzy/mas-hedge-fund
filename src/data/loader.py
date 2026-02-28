@@ -9,6 +9,7 @@ from src.data.models import (
     CompanyNews,
     InsiderTrade,
     LineItem,
+    ValuationMetrics,
 )
 import numpy as np
 
@@ -335,8 +336,11 @@ class LocalDataLoader:
     def get_insider_trades(self, ticker: str, end_date: str, start_date: Optional[str] = None, limit: int = 1000) -> List[InsiderTrade]:
         return []
 
-    def search_line_items(self, ticker: str, line_items: List[str], end_date: str, period: str = "ttm", limit: int = 10) -> List[LineItem]:
-        # Fundamental/Buffett agent uses this. We can map `comp.fundq` columns to line items!
+    def search_line_items(self, ticker: str, line_items: List[str], end_date: str, period: str = "ttm", limit: int = 10) -> List[ValuationMetrics]:
+        """
+        Get specific fundamental line items.
+        Returns explicit ValuationMetrics mapping from the Parquet data natively scaled to Millions.
+        """
         # Mapping: 'net_income' -> 'niq', 'revenue' -> 'revtq', 'total_assets' -> 'atq'
         permno = self.get_permno(ticker, end_date)
         gvkey = self.get_gvkey(permno) if permno else None
@@ -351,48 +355,41 @@ class LocalDataLoader:
         except KeyError:
             return []
         
-        column_map = {
-            'net_income': 'niq',
-            'revenue': 'revtq', 
-            'total_assets': 'atq',
-            'total_liabilities': 'ltq',
-            'total_equity': 'seqq',
-            'capital_expenditure': 'capxy',
-            'depreciation_and_amortization': 'dpq',
-            'working_capital': 'actq', # Using Current Assets as a proxy if isolated wc is needed, or actq - lctq
-            'total_debt': 'dlttq', # Long term debt
-            'cash_and_equivalents': 'cheq',
-            'free_cash_flow': 'fcf_proxy' # Computed below if missing
-        }
-        
         results = []
-        for item_name in line_items:
-            wrds_col = column_map.get(item_name)
+        for _, row in df.iterrows():
+            # Extract standard columns
+            ni = float(row.get('niq', 0)) if pd.notna(row.get('niq')) else None
+            dp = float(row.get('dpq', 0)) if pd.notna(row.get('dpq')) else None
+            capx = float(row.get('capxy', 0)) if pd.notna(row.get('capxy')) else None
+            debt = float(row.get('dlttq', 0)) if pd.notna(row.get('dlttq')) else None
+            cash = float(row.get('cheq', 0)) if pd.notna(row.get('cheq')) else None
             
-            for _, row in df.iterrows():
-                val = None
-                if wrds_col == 'fcf_proxy':
-                    # Proxy calculation for FCF if exact column is missing
-                    ni = float(row.get('niq', 0)) if pd.notna(row.get('niq')) else 0
-                    dp = float(row.get('dpq', 0)) if pd.notna(row.get('dpq')) else 0
-                    capx = float(row.get('capxy', 0)) if pd.notna(row.get('capxy')) else 0
-                    val = ni + dp - capx
-                elif item_name == 'working_capital':
-                    act = float(row.get('actq', 0)) if pd.notna(row.get('actq')) else 0
-                    lct = float(row.get('lctq', 0)) if pd.notna(row.get('lctq')) else 0
-                    val = act - lct
-                elif wrds_col and wrds_col in df.columns:
-                    val = row[wrds_col]
-                    
-                if val is not None and pd.notna(val):
-                    results.append(LineItem(
-                        ticker=ticker,
-                        report_period=row['rdq'].strftime('%Y-%m-%d'),
-                        period=period,
-                        currency="USD",
-                        line_item=item_name,
-                        value=float(val)
-                    ))
+            # Proxy calculations
+            fcf = None
+            if ni is not None and dp is not None and capx is not None:
+                fcf = ni + dp - capx
+                
+            wc = None
+            act = float(row.get('actq', 0)) if pd.notna(row.get('actq')) else None
+            lct = float(row.get('lctq', 0)) if pd.notna(row.get('lctq')) else None
+            if act is not None and lct is not None:
+                wc = act - lct
+                
+            metrics = ValuationMetrics(
+                ticker=ticker,
+                report_period=row['rdq'].strftime('%Y-%m-%d'),
+                period=period,
+                currency="USD",
+                net_income=ni,
+                depreciation_and_amortization=dp,
+                capital_expenditure=capx,
+                working_capital=wc,
+                total_debt=debt,
+                cash_and_equivalents=cash,
+                free_cash_flow=fcf
+            )
+            results.append(metrics)
+            
         return results
 
     def get_market_cap(self, ticker: str, end_date: str) -> Optional[float]:
