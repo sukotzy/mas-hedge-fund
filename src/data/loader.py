@@ -280,7 +280,7 @@ class LocalDataLoader:
                     if not matched_fund.empty:
                         cshoq = matched_fund.iloc[0].get('cshoq')
                         if pd.notna(cshoq) and latest_price > 0:
-                            m.market_cap = float(cshoq) * 1e6 * latest_price
+                            m.market_cap = float(cshoq) * latest_price
                             
         return metrics_list
 
@@ -391,7 +391,7 @@ class LocalDataLoader:
                         period=period,
                         currency="USD",
                         line_item=item_name,
-                        value=float(val) * 1e6
+                        value=float(val)
                     ))
         return results
 
