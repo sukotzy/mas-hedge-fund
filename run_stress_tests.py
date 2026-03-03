@@ -35,18 +35,20 @@ def main():
         logger.info(f"=== Running Stress Test: {test_name.upper()} ({dates['start']} to {dates['end']}) ===")
         
         for model_name, script_path in SCRIPTS:
-            output_dir = f"data/training_output_{model_name}_{test_name}"
-            logger.info(f"-> Starting {model_name.upper()} execution. Output: {output_dir}")
-            
-            cmd = [
-                PYTHON_BIN, script_path,
-                "--start-date", dates["start"],
-                "--end-date", dates["end"],
-                "--output-dir", output_dir,
-                "--experiments", EXPERIMENTS_TO_RUN
-            ]
-            
-            logger.info(f"Running command: {' '.join(cmd)}")
+            for lang in ["en", "zh"]:
+                output_dir = f"data/training_output_{model_name}_{lang}_{test_name}"
+                logger.info(f"-> Starting {model_name.upper()} ({lang.upper()}) execution. Output: {output_dir}")
+                
+                cmd = [
+                    PYTHON_BIN, script_path,
+                    "--start-date", dates["start"],
+                    "--end-date", dates["end"],
+                    "--output-dir", output_dir,
+                    "--experiments", EXPERIMENTS_TO_RUN,
+                    "--lang", lang
+                ]
+                
+                logger.info(f"Running command: {' '.join(cmd)}")
             try:
                 subprocess.run(cmd, check=True)
                 logger.info(f"-> {model_name.upper()} execution for {test_name} completed successfully.")

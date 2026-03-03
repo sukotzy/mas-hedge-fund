@@ -14,11 +14,15 @@ load_dotenv()
 # --- FORCE LOCAL DATA ---
 os.environ["USE_LOCAL_DATA"] = "true"
 
-# Import Allocators
 from src.agents.allocators.fundamental_allocator import fundamental_allocator
 from src.agents.allocators.technical_allocator import technical_allocator
 from src.agents.allocators.valuation_allocator import valuation_allocator
 from src.agents.allocators.news_sentiment_allocator import news_sentiment_allocator
+
+from src.agents.allocators.fundamental_zh_allocator import fundamental_zh_allocator
+from src.agents.allocators.technical_zh_allocator import technical_zh_allocator
+from src.agents.allocators.valuation_zh_allocator import valuation_zh_allocator
+from src.agents.allocators.news_sentiment_zh_allocator import news_sentiment_zh_allocator
 
 # Configure Logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -57,6 +61,7 @@ parser.add_argument("--start-date", type=str, default="2020-01-01", help="Start 
 parser.add_argument("--end-date", type=str, default="2020-06-30", help="End Date (YYYY-MM-DD)")
 parser.add_argument("--output-dir", type=str, default="data/training_output_deepseek_2020h1", help="Output directory")
 parser.add_argument("--experiments", type=str, default="no_hint_wealth,with_hint_wealth", help="Comma-separated list of experiments to run")
+parser.add_argument("--lang", type=str, default="en", choices=["en", "zh"], help="Language of allocators to use (en or zh)")
 args = parser.parse_args()
 
 START_DATE = args.start_date
@@ -67,12 +72,20 @@ OUTPUT_BASE_DIR = Path(args.output_dir)
 selected_exps = [e.strip() for e in args.experiments.split(",")]
 EXPERIMENTS = {k: v for k, v in ALL_EXPERIMENTS.items() if k in selected_exps}
 
-ALLOCATORS = {
-    "fundamental": fundamental_allocator,
-    "technical": technical_allocator,
-    "valuation": valuation_allocator,
-    "sentiment": news_sentiment_allocator
-}
+if args.lang == "zh":
+    ALLOCATORS = {
+        "fundamental": fundamental_zh_allocator,
+        "technical": technical_zh_allocator,
+        "valuation": valuation_zh_allocator,
+        "sentiment": news_sentiment_zh_allocator
+    }
+else:
+    ALLOCATORS = {
+        "fundamental": fundamental_allocator,
+        "technical": technical_allocator,
+        "valuation": valuation_allocator,
+        "sentiment": news_sentiment_allocator
+    }
 
 def load_candidates(filename):
     path = DATA_DIR / filename
