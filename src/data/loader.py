@@ -12,6 +12,7 @@ from src.data.models import (
     ValuationMetrics,
 )
 import numpy as np
+import threading
 
 class LocalDataLoader:
     """Load financial data from local Parquet files (WRDS Dump)."""
@@ -19,6 +20,7 @@ class LocalDataLoader:
     def __init__(self, data_dir: str = "data"):
         self.data_dir = Path(data_dir)
         self.raw_dir = self.data_dir / "raw"
+        self._cache_lock = threading.Lock()
         
         # Pre-load data tables
         self._load_tables()
@@ -88,28 +90,31 @@ class LocalDataLoader:
             self.company_info = pd.DataFrame()
 
     def _build_caches(self):
-        if hasattr(self, '_permno_cache'): return
+        if hasattr(self, '_gvkey_cache'): return
         
-        # Build Ticker -> List of (start, ending, permno)
-        self._permno_cache = {}
-        if not self.constituents.empty:
-            for _, row in self.constituents.iterrows():
-                t = row['ticker']
-                if pd.isna(t): continue
-                if t not in self._permno_cache:
-                    self._permno_cache[t] = []
-                self._permno_cache[t].append((row['start'], row['ending'], int(row['permno'])))
+        with self._cache_lock:
+            if hasattr(self, '_gvkey_cache'): return
+            
+            # Build Ticker -> List of (start, ending, permno)
+            self._permno_cache = {}
+            if not self.constituents.empty:
+                for _, row in self.constituents.iterrows():
+                    t = row['ticker']
+                    if pd.isna(t): continue
+                    if t not in self._permno_cache:
+                        self._permno_cache[t] = []
+                    self._permno_cache[t].append((row['start'], row['ending'], int(row['permno'])))
                 
             # Sort each ticker's records by end date desc for fallback
             for t in self._permno_cache:
                 self._permno_cache[t].sort(key=lambda x: x[1], reverse=True)
                 
-        # Build Permno -> GVKEY
-        self._gvkey_cache = {}
-        if not self.ccm_links.empty:
-            for _, row in self.ccm_links.iterrows():
-                p = int(row['permno'])
-                self._gvkey_cache[p] = str(row['gvkey']).zfill(6)
+            # Build Permno -> GVKEY
+            self._gvkey_cache = {}
+            if not self.ccm_links.empty:
+                for _, row in self.ccm_links.iterrows():
+                    p = int(row['permno'])
+                    self._gvkey_cache[p] = str(row['gvkey']).zfill(6)
 
     def get_permno(self, ticker: str, date: str) -> Optional[int]:
         """Resolve Ticker to Permno for a specific date using O(1) cache."""
@@ -135,6 +140,8 @@ class LocalDataLoader:
             return None
             
         self._build_caches()
+        if not hasattr(self, '_gvkey_cache'):
+            return None
         return self._gvkey_cache.get(permno)
 
     def get_prices(self, ticker: str, start_date: str, end_date: str) -> List[Price]:
