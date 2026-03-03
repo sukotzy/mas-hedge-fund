@@ -24,19 +24,16 @@ from src.agents.allocators.news_sentiment_allocator import news_sentiment_alloca
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
+import argparse
+
 # --- CONFIGURATION (DEEPSEEK SPECIFIC) ---
 DATA_DIR = Path("data/processed")
-OUTPUT_BASE_DIR = Path("data/training_output_deepseek_2020h1")
 
 # DeepSeek Config
 MODEL_NAME = "deepseek-chat"
 MODEL_PROVIDER = "DeepSeek"
 
-# Date Range: 2020-01-01 to 2020-06-30
-START_DATE = "2020-01-01"
-END_DATE = "2020-06-30"
-
-EXPERIMENTS = {
+ALL_EXPERIMENTS = {
     "no_hint_standard": {
         "input_file": "daily_candidates_no_hint.parquet",
         "prompt_version": "standard"
@@ -54,6 +51,21 @@ EXPERIMENTS = {
         "prompt_version": "wealth"
     }
 }
+
+parser = argparse.ArgumentParser(description="Run DeepSeek Experiment over a date range.")
+parser.add_argument("--start-date", type=str, default="2020-01-01", help="Start Date (YYYY-MM-DD)")
+parser.add_argument("--end-date", type=str, default="2020-06-30", help="End Date (YYYY-MM-DD)")
+parser.add_argument("--output-dir", type=str, default="data/training_output_deepseek_2020h1", help="Output directory")
+parser.add_argument("--experiments", type=str, default="no_hint_wealth,with_hint_wealth", help="Comma-separated list of experiments to run")
+args = parser.parse_args()
+
+START_DATE = args.start_date
+END_DATE = args.end_date
+OUTPUT_BASE_DIR = Path(args.output_dir)
+
+# Filter experiments
+selected_exps = [e.strip() for e in args.experiments.split(",")]
+EXPERIMENTS = {k: v for k, v in ALL_EXPERIMENTS.items() if k in selected_exps}
 
 ALLOCATORS = {
     "fundamental": fundamental_allocator,
