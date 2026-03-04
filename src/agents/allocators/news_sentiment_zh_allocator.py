@@ -65,33 +65,33 @@ def news_sentiment_zh_allocator(state: AgentState, agent_id: str = "news_sentime
     # Construct the Universe View
     annual_rf = risk_free_rate * 252
     cash_summary = (
-        f"Signal: neutral (100%). CASH asset with Guaranteed Daily Risk-Free Rate: {risk_free_rate:.6f} "
-        f"(Annualized: {annual_rf:.2%}). 'long' means earning this rate. 'short' means borrowing."
+        f"Signal: neutral (100%). 现金资产已知每日无风险收益率为 {risk_free_rate:.6f} "
+        f"(年化: {annual_rf:.2%})。'long' 表示以此无风险利率赚取收益。'short' 表示借入资金。"
     )
     ticker_summaries["CASH"] = cash_summary
     
     universe_context = "\n".join([f"Stock {t}: {s}" for t, s in ticker_summaries.items()])
     
     allocation_prompt = (
-        f"You are a Betting Agent with $100 capital. Your objective is to maximize your wealth through accurate predictions.\n"
-        f"Analyze the following universe of stocks based on their recent corporate events (Last 7 Days).\n"
-        f"Your decisions have financial consequences: accurate bets increase your capital, while incorrect bets reduce it.\n"
-        f"Your universe includes these stocks AND a 'CASH' asset (which has a known daily risk-free rate of {risk_free_rate:.6f}).\n"
-        f"Allocate your capital based on your conviction in the signal strength. Treat CASH as a peer asset.\n\n"
+        f"你是一位拥有 $100 本金的事件驱动型对冲基金交易员。你的目标是通过准确的预测来最大化你的财富。\n"
+        f"请基于最近的企业事件（过去7天），分析以下股票池。\n"
+        f"你的决策将产生真实的财务后果：准确的押注会增加你的本金，而错误的判断会减少你的财富。\n"
+        f"你的投资池包括这些股票以及一个 'CASH'（现金）资产（其已知的每日无风险收益率为 {risk_free_rate:.6f}）。\n"
+        f"请根据你对信号强度的确信度来分配资金。将 CASH 视为同等级别的资产。\n\n"
         f"{universe_context}\n\n"
-        f"Constraints:\n"
+        f"约束条件:\n"
         f"1. 数学铁律：净敞口（Net Exposure）必须精确等于 100.0。\n"
         f"   计算公式：（所有 'long' 方向的金额总和） - （所有 'short' 方向的金额总和） = 100.0\n"
         f"2. 重要限制：每一个 'amount'（金额）必须是严格的正数（例如 50.0，绝不能是 -50.0）。数学正负号由 'direction'（方向）字段（'long' 或 'short'）来控制。\n"
-        f"3. 总敞口上限：为了防止过度承担风险，所有金额的绝对值总和（做多 + 做空的总规模）不得超过 1000.0。\n"
+        f"3. 总敞口上限：所有分配金额的绝对值总和（做多规模 + 做空规模）严格不得超过 1000.0。\n"
         f"4. 数学示例：\n"
         f"   - 加杠杆：做多股票 150，做空现金 (CASH) 50。数学计算：150 - 50 = 100.0。\n"
         f"   - 做对冲：做多股票 120，做空股票 20，做多现金 0。数学计算：120 - 20 = 100.0。\n"
-        f"   - 纯防守：做多现金 (CASH) 100。数学计算：100 - 0 = 100.0。\n"
-        f"5. 对于股票：'long' = 看涨（利好），'short' = 看跌（利空）。\n"
+        f"   - 全额现金：做多现金 (CASH) 100。数学计算：100 - 0 = 100.0。\n"
+        f"5. 对于股票：'long' = 看涨（Bullish），'short' = 看跌（Bearish）。\n"
         f"6. 对于现金 (CASH)：'long' = 借出/持有现金以赚取无风险利率，'short' = 借入现金以便给投资组合加杠杆。\n"
-        f"7. 宁缺毋滥：如果你的确信度很低，请不要为该资产分配任何资金。决策务必果断。\n"
-        f"8. 空仓防守规则：如果你认为市场风险过高，不想持有任何股票，你必须明确输出唯一的一笔资产分配：'long' CASH 100.0。绝对不要输出空列表。\n"
+        f"7. 确信度分配：请严格根据信号的确信度成比例分配资金。如果对某资产缺乏明确的判断依据，对应的分配金额应为 0。\n"
+        f"8. 空仓规则：如果你不想持有任何股票，你必须明确输出唯一的一笔资产分配：'long' CASH 100.0。绝对不要输出空列表。\n"
         f"9. 禁止拆分现金：不要将 CASH 拆分成多笔分配记录。只能提供唯一一行汇总的 CASH 分配（要么只 'long'，要么只 'short'）。\n"
         f"10. 语言要求：你可以直接阅读和分析提供的英文数据，但请务必使用中文（Chinese）来撰写你的 'reasoning'（推理逻辑）字段。"
     )
@@ -283,9 +283,9 @@ def _analyze_and_allocate_global(tickers, end_date, api_key, agent_id, state):
 
     annual_rf = risk_free_rate * 252
     cash_summary = (
-        f"Stock CASH Events (Last 7 Days):\\n"
-        f"- Guaranteed Daily Risk-Free Rate: {risk_free_rate:.6f} (Annualized: {annual_rf:.2%}).\\n"
-        f"- Note: 'long' means earning this rate. 'short' means paying this rate to borrow capital."
+        f"资产 CASH 近期事件 (过去7天):\n"
+        f"- 已知每日无风险利率: {risk_free_rate:.6f} (年化: {annual_rf:.2%})\n"
+        f"- 注意: 'long' 表示以此无风险利率赚取收益。'short' 表示以此利率借入资金。"
     )
     universe_content.append(cash_summary)
 
@@ -305,15 +305,15 @@ def _analyze_and_allocate_global(tickers, end_date, api_key, agent_id, state):
             f"1. 数学铁律：净敞口（Net Exposure）必须精确等于 100.0。\\n"
             f"   计算公式：（所有 'long' 方向的金额总和） - （所有 'short' 方向的金额总和） = 100.0\\n"
             f"2. 重要限制：每一个 'amount'（金额）必须是严格的正数（例如 50.0，绝不能是 -50.0）。数学正负号由 'direction'（方向）字段（'long' 或 'short'）来控制。\\n"
-            f"3. 总敞口上限：为了防止过度承担风险，所有金额的绝对值总和（做多 + 做空的总规模）不得超过 1000.0。\\n"
+            f"3. 总敞口上限：所有分配金额的绝对值总和（做多规模 + 做空规模）严格不得超过 1000.0。\\n"
             f"4. 数学示例：\\n"
             f"   - 加杠杆：做多股票 150，做空现金 (CASH) 50。数学计算：150 - 50 = 100.0。\\n"
             f"   - 做对冲：做多股票 120，做空股票 20，做多现金 0。数学计算：120 - 20 = 100.0。\\n"
-            f"   - 纯防守：做多现金 (CASH) 100。数学计算：100 - 0 = 100.0。\\n"
-            f"5. 对于股票：'long' = 看涨（利好），'short' = 看跌（利空）。\\n"
+            f"   - 全额现金：做多现金 (CASH) 100。数学计算：100 - 0 = 100.0。\\n"
+            f"5. 对于股票：'long' = 看涨（Bullish），'short' = 看跌（Bearish）。\\n"
             f"6. 对于现金 (CASH)：'long' = 借出/持有现金以赚取无风险利率，'short' = 借入现金以便给投资组合加杠杆。\\n"
-            f"7. 宁缺毋滥：如果你的确信度很低，请不要为该资产分配任何资金。决策务必果断。\\n"
-            f"8. 空仓防守规则：如果你认为市场风险过高，不想持有任何股票，你必须明确输出唯一的一笔资产分配：'long' CASH 100.0。绝对不要输出空列表。\\n"
+            f"7. 确信度分配：请严格根据信号的确信度成比例分配资金。如果对某资产缺乏明确的判断依据，对应的分配金额应为 0。\\n"
+            f"8. 空仓规则：如果你不想持有任何股票，你必须明确输出唯一的一笔资产分配：'long' CASH 100.0。绝对不要输出空列表。\\n"
             f"9. 禁止拆分现金：不要将 CASH 拆分成多笔分配记录。只能提供唯一一行汇总的 CASH 分配（要么只 'long'，要么只 'short'）。\\n"
             f"10. 语言要求：你可以直接阅读和分析提供的英文数据，但请务必使用中文（Chinese）来撰写你的 'reasoning'（推理逻辑）字段。"
         )

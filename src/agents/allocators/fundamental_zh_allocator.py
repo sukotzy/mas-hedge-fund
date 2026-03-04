@@ -63,10 +63,10 @@ def fundamental_zh_allocator(state: AgentState, agent_id: str = "fundamental_zh_
     # Construct Global Context
     annual_rf = risk_free_rate * 252
     cash_summary = (
-        f"Asset CASH:\n"
-        f"  - Price: $1.00\n"
-        f"  - Guaranteed Daily Risk-Free Rate: {risk_free_rate:.6f} (Annualized: {annual_rf:.2%})\n"
-        f"  - Note: 'long' means earning this rate. 'short' means paying this rate to borrow capital."
+        f"资产 CASH (现金):\n"
+        f"  - 当前价格: $1.00\n"
+        f"  - 已知每日无风险利率: {risk_free_rate:.6f} (年化: {annual_rf:.2%})\n"
+        f"  - 注意: 'long' 表示以此无风险利率赚取收益。'short' 表示以此利率借入资金。"
     )
     universe_summaries.append(cash_summary)
     study_notes = "\n\n".join(universe_summaries)
@@ -96,15 +96,15 @@ def fundamental_zh_allocator(state: AgentState, agent_id: str = "fundamental_zh_
         f"1. 数学铁律：净敞口（Net Exposure）必须精确等于 100.0。\n"
         f"   计算公式：（所有 'long' 方向的金额总和） - （所有 'short' 方向的金额总和） = 100.0\n"
         f"2. 重要限制：每一个 'amount'（金额）必须是严格的正数（例如 50.0，绝不能是 -50.0）。数学正负号由 'direction'（方向）字段（'long' 或 'short'）来控制。\n"
-        f"3. 总敞口上限：为了防止过度承担风险，所有金额的绝对值总和（做多 + 做空的总规模）不得超过 1000.0。\n"
+        f"3. 总敞口上限：所有分配金额的绝对值总和（做多规模 + 做空规模）严格不得超过 1000.0。\n"
         f"4. 数学示例：\n"
         f"   - 加杠杆：做多股票 150，做空现金 (CASH) 50。数学计算：150 - 50 = 100.0。\n"
         f"   - 做对冲：做多股票 120，做空股票 20，做多现金 0。数学计算：120 - 20 = 100.0。\n"
-        f"   - 纯防守：做多现金 (CASH) 100。数学计算：100 - 0 = 100.0。\n"
-        f"5. 对于股票：'long' = 买入（基本面良好），'short' = 卖出/做空（基本面差或被高估）。\n"
+        f"   - 全额现金：做多现金 (CASH) 100。数学计算：100 - 0 = 100.0。\n"
+        f"5. 对于股票：'long' = 建议买入（基本面良好），'short' = 建议抛售/做空（基本面恶化/被高估）。\n"
         f"6. 对于现金 (CASH)：'long' = 借出/持有现金以赚取无风险利率，'short' = 借入现金以便给投资组合加杠杆。\n"
-        f"7. 宁缺毋滥：如果你的确信度很低，请不要为该资产分配任何资金。决策务必果断。\n"
-        f"8. 空仓防守规则：如果你认为市场风险过高，不想持有任何股票，你必须明确输出唯一的一笔资产分配：'long' CASH 100.0。绝对不要输出空列表。\n"
+        f"7. 确信度分配：请严格根据信号的确信度成比例分配资金。如果对某资产缺乏明确的判断依据，对应的分配金额应为 0。\n"
+        f"8. 空仓规则：如果你不想持有任何股票，你必须明确输出唯一的一笔资产分配：'long' CASH 100.0。绝对不要输出空列表。\n"
         f"9. 禁止拆分现金：不要将 CASH 拆分成多笔分配记录。只能提供唯一一行汇总的 CASH 分配（要么只 'long'，要么只 'short'）。\n"
         f"10. 语言要求：你可以直接阅读和分析提供的英文数据，但请务必使用中文（Chinese）来撰写你的 'reasoning'（推理逻辑）字段。"
     )
