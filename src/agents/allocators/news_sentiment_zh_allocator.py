@@ -17,7 +17,7 @@ class Sentiment(BaseModel):
     sentiment: Literal["positive", "negative", "neutral"] = "neutral"
     confidence: int = Field(description="Confidence 0-100")
 
-def news_sentiment_zh_allocator(state: Dict[str, Any], agent_id: str = "news_sentiment_zh_allocator"):
+def news_sentiment_zh_allocator(state: AgentState, agent_id: str = "news_sentiment_zh_allocator"):
     """
     Batch Agent: Analyzes news for a UNIVERSE of tickers and allocates $100 capital.
     
@@ -169,13 +169,12 @@ def _analyze_events_individual(tickers, end_date, api_key, agent_id, state):
         valid_events = []
         for news in company_news[:5]: # Analyze up to 5 events
             prompt = (
-                f"You are a hedge fund analyst specializing in Event-Driven strategies. "
-                f"Analyze the following Corporate Event for stock {ticker}.\n\n"
-                f"Event Context: {news.source} (KeyDev Event Type)\n"
-                f"Headline: {news.title}\n\n"
-                f"Determine if this event is FUNDAMENTALLY 'positive' (bullish), 'negative' (bearish), "
-                f"or 'neutral' for the stock price.\n"
-                f"Also provide a confidence score (0-100).\n"
+                f"你是一位擅长事件驱动策略的对冲基金分析师。"
+                f"请分析股票 {ticker} 的以下企业事件。\n\n"
+                f"事件背景: {news.source} (重大事件类型)\n"
+                f"新闻标题: {news.title}\n\n"
+                f"请判断该事件对该股票价格的基本面影响是 'positive'（看涨）、'negative'（看跌）还是 'neutral'（中性）。\n"
+                f"同时请提供一个确信度分数 (0-100)。\n"
             )
             try:
                 response = call_llm(prompt, Sentiment, agent_name=agent_id, state=state)
@@ -230,11 +229,11 @@ def _analyze_events_batch(tickers, end_date, api_key, agent_id, state):
             events_text = "\n".join([f"- {n.date}: {n.title} (Source: {n.source})" for n in company_news[:5]])
         
         prompt = (
-            f"You are an Event-Driven Analyst. Review recent events for {ticker} (Last 7 Days) and provide a signal.\n\n"
+            f"你是一位事件驱动分析师。请查阅股票 {ticker} 近期的事件（过去7天）并提供一个信号。\n\n"
             f"{events_text}\n\n"
-            f"Is the aggregate impact Bullish, Bearish, or Neutral?\n"
-            f"If 'No events found', decide if silence is neutral or meaningful (usually neutral).\n"
-            f"Provide a brief summary reasoning."
+            f"请判断其综合影响是 Bullish（看涨）、Bearish（看跌）还是 Neutral（中性）？\n"
+            f"如果 '未找到事件'，请判断这种沉默是中性的还是有特殊含义的（通常是中性的）。\n"
+            f"请简要总结你的推理逻辑。"
         )
         
         try:

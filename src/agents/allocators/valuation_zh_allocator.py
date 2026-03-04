@@ -18,7 +18,7 @@ from src.agents.valuation import (
     calculate_dcf_scenarios
 )
 
-def valuation_zh_allocator(state: Dict[str, Any], agent_id: str = "valuation_zh_allocator"):
+def valuation_zh_allocator(state: AgentState, agent_id: str = "valuation_zh_allocator"):
     """
     Global Batch Valuation Agent.
     Calculates Intrinsic Value using multiple models and allocates capital to undervalued assets.

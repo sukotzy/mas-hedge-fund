@@ -18,7 +18,7 @@ from src.agents.technicals import (
     calculate_stat_arb_signals
 )
 
-def technical_zh_allocator(state: Dict[str, Any], agent_id: str = "technical_zh_allocator"):
+def technical_zh_allocator(state: AgentState, agent_id: str = "technical_zh_allocator"):
     """
     Global Batch Technical Agent.
     Analyzes price action/momentum for the entire universe and allocates capital.

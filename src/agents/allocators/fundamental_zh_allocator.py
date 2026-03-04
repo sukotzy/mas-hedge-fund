@@ -10,7 +10,7 @@ import json
 from datetime import datetime
 from typing import Dict, Any
 
-def fundamental_zh_allocator(state: Dict[str, Any], agent_id: str = "fundamental_zh_allocator"):
+def fundamental_zh_allocator(state: AgentState, agent_id: str = "fundamental_zh_allocator"):
     """
     Global Batch Fundamental Agent.
     Analyzes financial metrics (Profitability, Growth, Health, Value) for the entire universe
