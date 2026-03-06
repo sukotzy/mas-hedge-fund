@@ -63,7 +63,7 @@ def news_sentiment_allocator(state: AgentState, agent_id: str = "news_sentiment_
     if prompt_version == "standard":
         # Control Group: Original Prompt
         prompt = (
-            f"You are a Betting Agent with $100 capital. "
+            f"You are a Event-Driven Trader with $100 capital. "
             f"Analyze the following universe of stocks based on their recent corporate events (Last 7 Days).\n"
             f"Your universe includes these stocks AND a 'CASH' asset (which has a known daily risk-free rate of {risk_free_rate:.6f}).\n"
             f"You must allocate capital across these assets to maximize your betting return. Treat CASH as a peer asset.\n\n"
@@ -77,7 +77,7 @@ def news_sentiment_allocator(state: AgentState, agent_id: str = "news_sentiment_
             f"   - Leverage: Long Stocks $150, Short CASH $50. Math: 150 - 50 = 100.0.\n"
             f"   - Hedging: Long Stocks $120, Short Stocks $20, Long CASH $0. Math: 120 - 20 = 100.0.\n"
             f"   - All Cash: Long CASH $100. Math: 100 - 0 = 100.0.\n"
-            f"5. For stocks: 'long' = Bullish Setup, 'short' = Bearish Setup.\n"
+            f"5. For stocks: 'long' = Bullish, 'short' = Bearish.\n"
             f"6. For CASH: 'long' = Lending/Holding cash to earn the risk-free rate, 'short' = Borrowing cash to deploy leverage.\n"
             f"7. CONVICTION ALLOCATION: Allocate capital strictly proportionally to your conviction. If there is no clear basis for a judgment on an asset, the allocated amount should be 0.\n"
             f"8. EMPTY PORTFOLIO RULE: If you choose not to hold any stocks, you MUST explicitly output a single allocation: 'long' CASH for 100.0. Do NOT output an empty list.\n"
@@ -86,7 +86,7 @@ def news_sentiment_allocator(state: AgentState, agent_id: str = "news_sentiment_
     else:
         # Variant Group: Wealth Consequence Prompt (Default)
         prompt = (
-            f"You are a Betting Agent with $100 capital. Your objective is to maximize your wealth through accurate predictions.\n"
+            f"You are a Event-Driven Trader with $100 capital. Your objective is to maximize your wealth through accurate predictions.\n"
             f"Analyze the following universe of stocks based on their recent corporate events (Last 7 Days).\n"
             f"Your decisions have financial consequences: accurate bets increase your capital, while incorrect bets reduce it.\n"
             f"Your universe includes these stocks AND a 'CASH' asset (which has a known daily risk-free rate of {risk_free_rate:.6f}).\n"
@@ -101,7 +101,7 @@ def news_sentiment_allocator(state: AgentState, agent_id: str = "news_sentiment_
             f"   - Leverage: Long Stocks $150, Short CASH $50. Math: 150 - 50 = 100.0.\n"
             f"   - Hedging: Long Stocks $120, Short Stocks $20, Long CASH $0. Math: 120 - 20 = 100.0.\n"
             f"   - All Cash: Long CASH $100. Math: 100 - 0 = 100.0.\n"
-            f"5. For stocks: 'long' = Bullish Setup, 'short' = Bearish Setup.\n"
+            f"5. For stocks: 'long' = Bullish, 'short' = Bearish.\n"
             f"6. For CASH: 'long' = Lending/Holding cash to earn the risk-free rate, 'short' = Borrowing cash to deploy leverage.\n"
             f"7. CONVICTION ALLOCATION: Allocate capital strictly proportionally to your conviction. If there is no clear basis for a judgment on an asset, the allocated amount should be 0.\n"
             f"8. EMPTY PORTFOLIO RULE: If you choose not to hold any stocks, you MUST explicitly output a single allocation: 'long' CASH for 100.0. Do NOT output an empty list.\n"
