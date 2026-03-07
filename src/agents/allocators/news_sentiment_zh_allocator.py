@@ -18,6 +18,7 @@ def news_sentiment_zh_allocator(state: AgentState, agent_id: str = "news_sentime
     tickers = data.get("tickers")
     api_key = get_api_key_from_state(state, "FINANCIAL_DATASETS_API_KEY")
     risk_free_rate = data.get("risk_free_rate", 0.0)
+    annual_rf = risk_free_rate * 252
 
     dt_end = datetime.strptime(end_date, "%Y-%m-%d")
     dt_start = dt_end - timedelta(days=7)
@@ -32,10 +33,11 @@ def news_sentiment_zh_allocator(state: AgentState, agent_id: str = "news_sentime
     for ticker in tickers:
         # Hint string
         hint_str = ""
+        
         if ticker in hint_map:
             task = hint_map[ticker]
             action = task.get('action', 'analyze')
-            if action != 'analyze':
+            if action.lower() != 'analyze':
                 hint_str = f"  - 量化信号: {action.upper()} (理由: {task.get('reason', 'N/A')})。注意: 此信号仅供参考。你必须基于你的特定策略做出独立判断。\n"
 
         # Pass start_date
@@ -47,16 +49,8 @@ def news_sentiment_zh_allocator(state: AgentState, agent_id: str = "news_sentime
         events_text = "\n".join([f"- {n.date}: {n.title}" for n in company_news])
         universe_content.append(f"Stock {ticker} Events (Last 7 Days):\n{hint_str}{events_text}")
 
-    annual_rf = risk_free_rate * 252
-    cash_summary = (
-        f"资产 CASH 近期事件 (过去7天):\n"
-        f"- 已知每日无风险利率: {risk_free_rate:.6f} (年化: {annual_rf:.2%})\n"
-        f"- 注意: 'long' 表示以此无风险利率赚取收益。'short' 表示以此利率借入资金。"
-    )
-    universe_content.append(cash_summary)
-
     full_context = "\n\n".join(universe_content)
-    
+
     # Select Prompt based on metadata (A/B Testing)
     prompt_version = state.get("metadata", {}).get("prompt_version", "wealth")
     
@@ -64,7 +58,7 @@ def news_sentiment_zh_allocator(state: AgentState, agent_id: str = "news_sentime
         # Control Group: Original Prompt
         prompt = (
             f"你是一位事件驱动型交易员。你的目标是通过分析企业事件对资产价格的短期冲击来最大化投资组合的收益。\n"
-            f"你的投资池包括所提供的股票'Stock'，以及一个 'CASH'（现金）资产（其已知的每日无风险收益率为 {risk_free_rate:.6f}）。请将现金（CASH）视为具有保证收益的与股票（Stock）同等级的资产。\n"
+            f"你的投资池包括所提供的股票'Stock'，以及一个 'CASH'（现金）资产（其已知的年化无风险收益率为 {annual_rf:.2%}）。请将现金（CASH）视为具有保证收益的与股票（Stock）同等级的资产。\n"
             f"请独立分析以下提供的每项资产近期（过去7天内）的企业事件及情绪面影响以决定投资方向，并在整个投资池中进行综合权衡，根据相对的收益空间与确信度，将 $100 的本金分配到这些资产中。\n\n"
             f"投资池上下文:\n{full_context}\n\n"
             f"约束条件:\n"
@@ -87,8 +81,8 @@ def news_sentiment_zh_allocator(state: AgentState, agent_id: str = "news_sentime
         # Variant Group: Wealth Consequence Prompt (Default)
         prompt = (
             f"你是一位事件驱动型交易员。你的目标是通过分析企业事件对资产价格的短期冲击来最大化你的个人财富。\n"
-            f"你现在拥有$100的真实本金，你的决策将产生真实的财务后果。\n"            
-            f"你的投资池包括所提供的股票'Stock'，以及一个 'CASH'（现金）资产（其已知的每日无风险收益率为 {risk_free_rate:.6f}）。请将现金（CASH）视为具有保证收益的与股票（Stock）同等级的资产。\n"
+            f"你现在拥有 $100 的真实本金，你的决策将产生真实的财务后果。\n"            
+            f"你的投资池包括所提供的股票'Stock'，以及一个 'CASH'（现金）资产（其已知的年化无风险收益率为 {annual_rf:.2%}）。请将现金（CASH）视为具有保证收益的与股票（Stock）同等级的资产。\n"
             f"请独立分析以下提供的每项资产近期（过去7天内）的企业事件及情绪面影响以决定投资方向，并在整个投资池中进行综合权衡，根据相对的收益空间与确信度，将 $100 的本金分配到这些资产中。\n\n"
             f"投资池上下文:\n{full_context}\n\n"
             f"约束条件:\n"

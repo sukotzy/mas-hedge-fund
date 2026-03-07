@@ -119,10 +119,11 @@ def valuation_allocator(state: AgentState, agent_id: str = "valuation_allocator"
         hint_map = {t['ticker']: t for t in tasks}
         
         hint_str = ""
+        
         if ticker in hint_map:
             task = hint_map[ticker]
             action = task.get('action', 'analyze')
-            if action != 'analyze':
+            if action.lower() != 'analyze':
                 hint_str = f"  - Quantitative Signal: {action.upper()} (Reason: {task.get('reason', 'N/A')}). Note: Use this only as a reference. You MUST make your own judgment based on your specific strategy.\n"
                 
         val_str = f"${intrinsic_value:,.0f}" if intrinsic_value > 0 else "N/A (Missing Financials)"
@@ -138,14 +139,6 @@ def valuation_allocator(state: AgentState, agent_id: str = "valuation_allocator"
         universe_summaries.append(summary)
 
     # Construct Context
-    annual_rf = risk_free_rate * 252
-    cash_summary = (
-        f"Asset CASH:\n"
-        f"  - Price: $1.00\n"
-        f"  - Guaranteed Daily Risk-Free Rate: {risk_free_rate:.6f} (Annualized: {annual_rf:.2%})\n"
-        f"  - Note: 'long' means earning this rate. 'short' means paying this rate to borrow capital."
-    )
-    universe_summaries.append(cash_summary)
     study_notes = "\n\n".join(universe_summaries)
     
     # A/B Prompts
@@ -156,14 +149,14 @@ def valuation_allocator(state: AgentState, agent_id: str = "valuation_allocator"
         base_instruction = (
             "You are a Value Investor Portfolio Manager. "
             "Your objective is to allocate capital to the most undervalued assets to maximize returns.\n"
-            f"Your universe includes the provided stocks AND a 'CASH' asset (which has a known daily risk-free rate of {risk_free_rate:.6f}).\n"
+            f"Your universe includes the provided stocks AND a 'CASH' asset (which has a known annualized risk-free rate of {annual_rf:.2%}).\n"
             "Allocate $100 across these assets based on their valuation."
         )
     else:
         base_instruction = (
             "You are a Value Investor (Buffett/Graham Style) with $100 capital. Your goal is to maximize your wealth long-term.\n"
             "Your decisions have financial consequences. "
-            f"Your universe includes the provided stocks AND a 'CASH' asset (which has a known daily risk-free rate of {risk_free_rate:.6f}).\n"
+            f"Your universe includes the provided stocks AND a 'CASH' asset (which has a known annualized risk-free rate of {annual_rf:.2%}).\n"
             "Allocate capital based on your conviction. Treat CASH as a peer asset with a guaranteed return."
         )
 

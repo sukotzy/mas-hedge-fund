@@ -32,10 +32,11 @@ def news_sentiment_allocator(state: AgentState, agent_id: str = "news_sentiment_
     for ticker in tickers:
         # Hint string
         hint_str = ""
+        
         if ticker in hint_map:
             task = hint_map[ticker]
             action = task.get('action', 'analyze')
-            if action != 'analyze':
+            if action.lower() != 'analyze':
                 hint_str = f"Quantitative Signal: {action.upper()} (Reason: {task.get('reason', 'N/A')}). Note: Use this only as a reference. You MUST make your own judgment based on your specific strategy.\n"
 
         # Pass start_date
@@ -47,13 +48,6 @@ def news_sentiment_allocator(state: AgentState, agent_id: str = "news_sentiment_
         events_text = "\n".join([f"- {n.date}: {n.title}" for n in company_news])
         universe_content.append(f"Stock {ticker} Events (Last 7 Days):\n{hint_str}{events_text}")
 
-    annual_rf = risk_free_rate * 252
-    cash_summary = (
-        f"Stock CASH Events (Last 7 Days):\n"
-        f"- Guaranteed Daily Risk-Free Rate: {risk_free_rate:.6f} (Annualized: {annual_rf:.2%}).\n"
-        f"- Note: 'long' means earning this rate. 'short' means paying this rate to borrow capital."
-    )
-    universe_content.append(cash_summary)
 
     full_context = "\n\n".join(universe_content)
     
@@ -65,7 +59,7 @@ def news_sentiment_allocator(state: AgentState, agent_id: str = "news_sentiment_
         prompt = (
             f"You are a Event-Driven Trader with $100 capital. "
             f"Analyze the following universe of stocks based on their recent corporate events (Last 7 Days).\n"
-            f"Your universe includes these stocks AND a 'CASH' asset (which has a known daily risk-free rate of {risk_free_rate:.6f}).\n"
+            f"Your universe includes these stocks AND a 'CASH' asset (which has a known annualized risk-free rate of {annual_rf:.2%}).\n"
             f"You must allocate capital across these assets to maximize your betting return. Treat CASH as a peer asset.\n\n"
             f"{full_context}\n\n"
             f"Constraints:\n"
@@ -89,7 +83,7 @@ def news_sentiment_allocator(state: AgentState, agent_id: str = "news_sentiment_
             f"You are a Event-Driven Trader with $100 capital. Your objective is to maximize your wealth through accurate predictions.\n"
             f"Analyze the following universe of stocks based on their recent corporate events (Last 7 Days).\n"
             f"Your decisions have financial consequences: accurate bets increase your capital, while incorrect bets reduce it.\n"
-            f"Your universe includes these stocks AND a 'CASH' asset (which has a known daily risk-free rate of {risk_free_rate:.6f}).\n"
+            f"Your universe includes these stocks AND a 'CASH' asset (which has a known annualized risk-free rate of {annual_rf:.2%}).\n"
             f"Allocate your capital based on your conviction in the signal strength. Treat CASH as a peer asset.\n\n"
             f"{full_context}\n\n"
             f"Constraints:\n"

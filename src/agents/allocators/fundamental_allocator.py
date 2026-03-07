@@ -43,10 +43,11 @@ def fundamental_allocator(state: AgentState, agent_id: str = "fundamental_alloca
         hint_map = {t['ticker']: t for t in tasks}
         
         hint_str = ""
+        
         if ticker in hint_map:
             task = hint_map[ticker]
             action = task.get('action', 'analyze')
-            if action != 'analyze':
+            if action.lower() != 'analyze':
                 hint_str = f"  - Quantitative Signal: {action.upper()} (Reason: {task.get('reason', 'N/A')}). Note: Use this only as a reference. You MUST make your own judgment based on your specific strategy.\n"
         
         summary = (
@@ -60,14 +61,6 @@ def fundamental_allocator(state: AgentState, agent_id: str = "fundamental_alloca
         universe_summaries.append(summary)
 
     # Construct Global Context
-    annual_rf = risk_free_rate * 252
-    cash_summary = (
-        f"Asset CASH:\n"
-        f"  - Price: $1.00\n"
-        f"  - Guaranteed Daily Risk-Free Rate: {risk_free_rate:.6f} (Annualized: {annual_rf:.2%})\n"
-        f"  - Note: 'long' means earning this rate. 'short' means paying this rate to borrow capital."
-    )
-    universe_summaries.append(cash_summary)
     study_notes = "\n\n".join(universe_summaries)
     
     # Select Prompt based on A/B Test Config
@@ -78,7 +71,7 @@ def fundamental_allocator(state: AgentState, agent_id: str = "fundamental_alloca
         base_instruction = (
             "You are a Fundamental Portfolio Manager. "
             "Your goal is to maximize return by investing in high-quality, reasonably valued companies with growth potential.\n"
-            f"Your universe includes the provided stocks AND a 'CASH' asset (which has a known daily risk-free rate of {risk_free_rate:.6f}).\n"
+            f"Your universe includes the provided stocks AND a 'CASH' asset (which has a known annualized risk-free rate of {annual_rf:.2%}).\n"
             "Allocate $100 across these assets based on their fundamental strength."
         )
     else:
@@ -86,7 +79,7 @@ def fundamental_allocator(state: AgentState, agent_id: str = "fundamental_alloca
         base_instruction = (
             "You are a Fundamental Investor with $100 capital. Your goal is to maximize your personal wealth.\n"
             "Your decisions have financial consequences. "
-            f"Your universe includes the provided stocks AND a 'CASH' asset (which has a known daily risk-free rate of {risk_free_rate:.6f}).\n"
+            f"Your universe includes the provided stocks AND a 'CASH' asset (which has a known annualized risk-free rate of {annual_rf:.2%}).\n"
             "Allocate capital based on your conviction. Treat CASH as a peer asset with a guaranteed return."
         )
 

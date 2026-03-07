@@ -20,6 +20,8 @@ def fundamental_zh_allocator(state: AgentState, agent_id: str = "fundamental_zh_
     end_date = data.get("end_date")
     tickers = data.get("tickers")
     risk_free_rate = data.get("risk_free_rate", 0.0)
+    annual_rf = risk_free_rate * 252
+    
     api_key = get_api_key_from_state(state, "FINANCIAL_DATASETS_API_KEY")
     
     progress.update_status(agent_id, "ALL", "Fetching Financial Metrics")
@@ -44,10 +46,11 @@ def fundamental_zh_allocator(state: AgentState, agent_id: str = "fundamental_zh_
         hint_map = {t['ticker']: t for t in tasks}
         
         hint_str = ""
+        
         if ticker in hint_map:
             task = hint_map[ticker]
             action = task.get('action', 'analyze')
-            if action != 'analyze':
+            if action.lower() != 'analyze':
                 hint_str = f"  - 量化信号: {action.upper()} (理由: {task.get('reason', 'N/A')})。注意: 此信号仅供参考。你必须基于你的特定策略做出独立判断。\n"
         
         summary = (
@@ -60,15 +63,6 @@ def fundamental_zh_allocator(state: AgentState, agent_id: str = "fundamental_zh_
         )
         universe_summaries.append(summary)
 
-    # Construct Global Context
-    annual_rf = risk_free_rate * 252
-    cash_summary = (
-        f"资产 CASH (现金):\n"
-        f"  - 当前价格: $1.00\n"
-        f"  - 已知每日无风险利率: {risk_free_rate:.6f} (年化: {annual_rf:.2%})\n"
-        f"  - 注意: 'long' 表示以此无风险利率赚取收益。'short' 表示以此利率借入资金。"
-    )
-    universe_summaries.append(cash_summary)
     study_notes = "\n\n".join(universe_summaries)
     
     # Select Prompt based on A/B Test Config
@@ -77,15 +71,15 @@ def fundamental_zh_allocator(state: AgentState, agent_id: str = "fundamental_zh_
     if prompt_version == "standard":
         base_instruction = (
             "你是一位基本面投资者。你的目标是通过投资高质量、估值合理且具有增长潜力的公司来最大化投资组合的收益。\n"
-            f"你的投资池包括所提供的股票'Stock'，以及一个 'CASH'（现金）资产（其已知的每日无风险收益率为 {risk_free_rate:.6f}）。请将现金（CASH）视为具有保证收益的与股票（Stock）同等级的资产。\n"
+            f"你的投资池包括所提供的股票'Stock'，以及一个 'CASH'（现金）资产（其已知的年化无风险收益率为 {annual_rf:.2%}）。请将现金（CASH）视为具有保证收益的与股票（Stock）同等级的资产。\n"
             "请独立评估每项资产的基本面以决定投资方向，并在整个投资池中进行综合权衡，根据相对的收益空间与确信度，将 $100 的本金分配到这些资产中。"
         )
     else:
         # Wealth / Skin-in-the-game
         base_instruction = (
             "你是一位基本面投资者。你的目标是通过投资高质量、估值合理且具有增长潜力的公司来最大化你的个人财富。\n"
-            "你现在拥有$100的真实本金，你的决策将产生真实的财务后果。 "
-            f"你的投资池包括所提供的股票'Stock'，以及一个 'CASH'（现金）资产（其已知的每日无风险收益率为 {risk_free_rate:.6f}）。请将现金（CASH）视为具有保证收益的与股票（Stock）同等级的资产。\n"
+            "你现在拥有 $100 的真实本金，你的决策将产生真实的财务后果。\n"
+            f"你的投资池包括所提供的股票'Stock'，以及一个 'CASH'（现金）资产（其已知的年化无风险收益率为 {annual_rf:.2%}）。请将现金（CASH）视为具有保证收益的与股票（Stock）同等级的资产。\n"
             "请独立评估每项资产的基本面以决定投资方向，并在整个投资池中进行综合权衡，根据相对的收益空间与确信度，将 $100 的本金分配到这些资产中。"
         )
 
