@@ -4,6 +4,9 @@ from src.graph.state import AgentState, show_agent_reasoning
 from pydantic import BaseModel, Field
 from typing_extensions import Literal
 from src.utils.progress import progress
+import pandas as pd
+from src.tools.api import get_price_data
+from src.utils.optimizer_utils import calculate_optimal_portfolio
 
 class PortfolioDecision(BaseModel):
     action: Literal["buy", "sell", "short", "cover", "hold"]
@@ -56,77 +59,93 @@ def portfolio_management_agent(state: AgentState, agent_id: str = "portfolio_man
     # Deterministic Optimization Logic
     decisions = {}
     
-    # 1. Separate candidates
-    long_candidates = []
-    short_candidates = []
+    # 1. Fetch 15-day trailing prices for decay logic
+    prices_history = {}
+    end_date = state["data"].get("end_date", pd.Timestamp.today().strftime("%Y-%m-%d"))
+    dt_end = pd.Timestamp(end_date)
+    dt_start = dt_end - pd.Timedelta(days=15)
     
-    for ticker in tickers:
-        value = consensus_values.get(ticker, 0.0)
-        price = current_prices.get(ticker, 0.0)
-        limit = max_shares.get(ticker, 0) # Use max shares directly
-        
-        if price <= 0:
+    for t in tickers:
+        if t == "CASH":
+            continue
+        try:
+            df = get_price_data(t, dt_start.strftime("%Y-%m-%d"), end_date)
+            prices_history[t] = df
+        except Exception as e:
+            prices_history[t] = pd.DataFrame()
+
+    # 2. Extract previous holdings (net positions)
+    previous_holdings = {}
+    positions = portfolio.get("positions", {})
+    for t in tickers:
+        if t == "CASH":
+            continue
+        if t in positions:
+            pos = positions[t]
+            net_holding = pos.get("long", 0) - pos.get("short", 0)
+            previous_holdings[t] = net_holding
+        else:
+            previous_holdings[t] = 0
+
+    # 3. Retrieve previous consensus
+    previous_consensus = state["data"].get("previous_consensus", {})
+
+    # 4. Prepare risk limits in USD
+    risk_limits_usd = {}
+    for t in tickers:
+        if t == "CASH":
+            continue
+        risk_limits_usd[t] = position_limits.get(t, 0.0)
+
+    # 5. Call Optimization
+    initial_capital = portfolio.get("cash", 100000.0)
+    
+    optimal_shares, adjusted_consensus = calculate_optimal_portfolio(
+        today_consensus=consensus_values,
+        previous_consensus=previous_consensus,
+        previous_holdings=previous_holdings,
+        prices_history=prices_history,
+        risk_limits=risk_limits_usd,
+        initial_capital=initial_capital,
+        risk_free_rate=0.0
+    )
+
+    # 6. Store updated consensus back in state directly
+    state["data"]["previous_consensus"] = adjusted_consensus
+
+    # 7. Generate Decisions using Delta Math
+    for t in tickers:
+        if t == "CASH":
             continue
             
-        if value > 0:
-            long_candidates.append({"ticker": ticker, "value": value, "price": price, "limit": limit})
-        elif value < 0:
-            short_candidates.append({"ticker": ticker, "value": value, "price": price, "limit": limit})
-            
-    # 2. Sort by conviction (absolute value)
-    long_candidates.sort(key=lambda x: x["value"], reverse=True)
-    short_candidates.sort(key=lambda x: abs(x["value"]), reverse=True)
-    
-    # 3. Initial Allocation (Max out up to limit)
-    long_allocations = {}
-    short_allocations = {}
-    total_long_amt = 0.0
-    total_short_amt = 0.0
-    
-    for item in long_candidates:
-        # Allocate max shares
-        qty = item["limit"]
-        long_allocations[item["ticker"]] = qty
-        total_long_amt += qty * item["price"]
+        target_net_shares = optimal_shares.get(t, 0.0)
+        net_holding = previous_holdings.get(t, 0)
+        delta = target_net_shares - net_holding
         
-    for item in short_candidates:
-        qty = item["limit"]
-        short_allocations[item["ticker"]] = qty
-        total_short_amt += qty * item["price"]
+        # We need integer shares
+        delta = int(round(delta))
         
-    # 4. Enforce Market Neutrality (Self-financing: Long = Short)
-    # Scale down the larger side
-    if total_long_amt > total_short_amt and total_short_amt > 0:
-        scale = total_short_amt / total_long_amt
-        for t in long_allocations:
-            long_allocations[t] = int(long_allocations[t] * scale)
-    elif total_short_amt > total_long_amt and total_long_amt > 0:
-        scale = total_long_amt / total_short_amt
-        for t in short_allocations:
-            short_allocations[t] = int(short_allocations[t] * scale)
-    elif total_long_amt == 0 or total_short_amt == 0:
-        # If one side is empty, we can't be neutral.
-        # For demo, we'll allow directional bets if one side is missing, 
-        # or we could zero out. Let's allow it but maybe scale to cash?
-        # Assuming cash is sufficient since we used max_shares which considers position limits.
-        pass
-
-    # 5. Generate Decisions
-    for ticker in tickers:
         action = "hold"
         quantity = 0
-        reasoning = "Neutral consensus or no opportunity"
         
-        if ticker in long_allocations and long_allocations[ticker] > 0:
-            quantity = long_allocations[ticker]
-            action = "buy"
-            reasoning = f"Long conviction (Value: {consensus_values.get(ticker, 0):.2f})"
-        elif ticker in short_allocations and short_allocations[ticker] > 0:
-            quantity = short_allocations[ticker]
-            action = "short"
-            reasoning = f"Short conviction (Value: {consensus_values.get(ticker, 0):.2f})"
+        if net_holding >= 0:
+            if delta > 0:
+                action = "buy"
+                quantity = delta
+            elif delta < 0:
+                action = "sell"
+                quantity = abs(delta)
+        else:  # net_holding < 0
+            if delta < 0:
+                action = "short"
+                quantity = abs(delta)
+            elif delta > 0:
+                action = "cover"
+                quantity = delta
                 
-        decisions[ticker] = PortfolioDecision(
+        reasoning = f"Optimized target net shares: {int(target_net_shares)}. Adjusted signal: {adjusted_consensus.get(t, 0):.2f}"
+        
+        decisions[t] = PortfolioDecision(
             action=action,
             quantity=quantity,
             confidence=100, # Deterministic

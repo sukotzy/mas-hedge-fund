@@ -10,6 +10,7 @@ sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../..')
 import pandas as pd
 from scipy.optimize import linprog
 import numpy as np
+import datetime
 from tqdm import tqdm
 from dotenv import load_dotenv
 
@@ -20,85 +21,14 @@ os.environ["USE_LOCAL_DATA"] = "true"
 from src.market.betting_market import BettingMarket
 from src.schemas import Bet, MarketSignal
 from src.agents.risk_manager import risk_management_agent
-from src.tools.api import get_prices, prices_to_df
+from src.tools.api import get_prices, prices_to_df, get_price_data
+from src.utils.optimizer_utils import calculate_optimal_portfolio
 
 # Configure Logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
-def solve_optimization(consensus_values: dict[str, float], 
-                       current_prices: dict[str, float], 
-                       risk_limits: dict[str, float], 
-                       initial_capital: float, 
-                       risk_free_rate: float):
-    """
-    Runs LP Optimization.
-    Objective: Maximize Sum(Value_i * Action_i) + (Initial_Capital * RiskFreeRate)
-    Constraints:
-    1. |Action_i * Price_i| <= Risk_Limit_i
-    2. Sum(Action_i * Price_i) = 0 (Self-financing via collateral)
-    """
-    tickers = list(current_prices.keys())
-    # Include CASH in tickers if it isn't already to ensure it gets an LP variable
-    if "CASH" not in tickers:
-        tickers.append("CASH")
-        
-    # Let x = [Action_T1, Action_T2, ..., Action_CASH] 
-    # For stocks, x is number of shares. For CASH, x is dollar amount.
-    # Objective: maximize c^T x + (Initial_Capital * Rf)
-    # Objective: maximize c^T x + (Initial_Capital * Rf)
-    # Notice that (Initial_Capital * Rf) is a constant, so we maximize c^T x.
-    # We must minimize -c^T x for linprog.
-    
-    c = []
-    prices = []
-    bounds = []
-    
-    for t in tickers:
-        value = consensus_values.get(t, 0.0)
-        c.append(-value) # Minimize negative value
-        
-        if t == "CASH":
-            price = 1.0 # Cash is always $1
-            prices.append(price)
-            # Cash can be anywhere from -Initial_Capital to +Initial_Capital 
-            # (or unbound if we just want the equality constraint to handle it)
-            # But let's bound it to available collateral for safety
-            bounds.append((-initial_capital, initial_capital))
-        else:
-            price = current_prices[t]
-            prices.append(price)
-            
-            limit_usd = risk_limits.get(t, 0.0)
-            
-            # Action is in shares. Bounds in shares: (-limit / price, +limit / price)
-            if price > 0:
-                max_shares = limit_usd / price
-                bounds.append((-max_shares, max_shares))
-            else:
-                bounds.append((0, 0))
-            
-    if not c or all(val == 0.0 for val in c):
-        logger.warning("All consensus values are zero (no bets). Returning zero allocations.")
-        return {t: 0.0 for t in tickers}
-        
-    # Equality Constraint: Sum(Action_i * Price_i) = 0
-    A_eq = [prices]
-    b_eq = [0.0]
-    
-    # Run LP
-    res = linprog(c, A_eq=A_eq, b_eq=b_eq, bounds=bounds, method='highs')
-    
-    results = {}
-    if res.success:
-        for i, t in enumerate(tickers):
-            results[t] = res.x[i]
-    else:
-        logger.warning(f"Optimization failed: {res.message}")
-        for t in tickers:
-            results[t] = 0.0
-                
-    return results
+# Run LP is handled by solve_optimization_lp in optimizer_utils now
 
 def get_risk_limits(date_str: str, tickers: list[str]):
     """
@@ -157,7 +87,7 @@ def get_dynamic_rf_rate(date_str: str, rf_df: pd.DataFrame) -> float:
     return 0.05 / 252 # Fallback
 
 
-def process_day(day_data: dict, rf_rate: float):
+def process_day(day_data: dict, rf_rate: float, previous_holdings: dict, previous_consensus: dict):
     date_str = day_data["date"]
     tickers = day_data["tickers"]
     
@@ -205,13 +135,28 @@ def process_day(day_data: dict, rf_rate: float):
     rm_tickers = [t for t in tickers if t != "CASH"]
     risk_limits, prices = get_risk_limits(date_str, rm_tickers)
     
-    # 3. Optimization
+    # 3. Fetch 15-day trailing prices for decay logic
+    prices_history = {}
+    dt_end = pd.Timestamp(date_str)
+    dt_start = dt_end - pd.Timedelta(days=15)
+    
+    for t in rm_tickers:
+        try:
+            df = get_price_data(t, dt_start.strftime("%Y-%m-%d"), date_str)
+            prices_history[t] = df
+        except Exception as e:
+            logger.warning(f"Failed to fetch price data for {t} from {dt_start.strftime('%Y-%m-%d')} to {date_str}: {e}")
+            prices_history[t] = pd.DataFrame()
+    
+    # 4. Optimization
     # The new pipeline will pass the actual calculated fund_wealth. If missing, defaults to 100k.
     fund_wealth = day_data.get("fund_wealth", 100000.0) 
     
-    optimal_shares = solve_optimization(
-        consensus_values=consensus_values,
-        current_prices=prices,
+    optimal_shares, adjusted_consensus = calculate_optimal_portfolio(
+        today_consensus=consensus_values,
+        previous_consensus=previous_consensus,
+        previous_holdings=previous_holdings,
+        prices_history=prices_history,
         risk_limits=risk_limits,
         initial_capital=fund_wealth,
         risk_free_rate=rf_rate
@@ -220,6 +165,7 @@ def process_day(day_data: dict, rf_rate: float):
     return {
         "date": date_str,
         "consensus": consensus_values,
+        "adjusted_consensus": adjusted_consensus,
         "prices": prices,
         "risk_limits": risk_limits,
         "optimal_shares": optimal_shares,
@@ -252,15 +198,25 @@ def main():
         logger.warning(f"RF data not found at {rf_file}, using fallback 5% annual.")
         rf_df = pd.DataFrame()
     
+    # Memory state for the optimizer
+    previous_holdings = {}
+    previous_consensus = {}
+    
     for line in tqdm(lines):
         day_data = json.loads(line)
         try:
             date_str = day_data.get('date')
             rf_rate = get_dynamic_rf_rate(date_str, rf_df)
             
-            # Pure functional optimization pass. No state maintained across loop iterations.
-            res = process_day(day_data, rf_rate=rf_rate) 
+            # Pure functional optimization pass over state
+            res = process_day(day_data, rf_rate=rf_rate, 
+                              previous_holdings=previous_holdings,
+                              previous_consensus=previous_consensus) 
             results.append(res)
+            
+            # Update memory state after each day
+            previous_holdings = res["optimal_shares"].copy()
+            previous_consensus = res["adjusted_consensus"].copy()
             
         except Exception as e:
             logger.error(f"Error processing {day_data.get('date')}: {e}")
