@@ -11,6 +11,7 @@ import pandas as pd
 from scipy.optimize import linprog
 import numpy as np
 import datetime
+import argparse
 from tqdm import tqdm
 from dotenv import load_dotenv
 
@@ -23,6 +24,9 @@ from src.schemas import Bet, MarketSignal
 from src.agents.risk_manager import risk_management_agent
 from src.tools.api import get_prices, prices_to_df, get_price_data
 from src.utils.optimizer_utils import calculate_optimal_portfolio
+from src.backtesting.portfolio import Portfolio
+from src.backtesting.trader import TradeExecutor
+from src.backtesting.valuation import calculate_portfolio_value
 
 # Configure Logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -30,13 +34,13 @@ logger = logging.getLogger(__name__)
 
 # Run LP is handled by solve_optimization_lp in optimizer_utils now
 
-def get_risk_limits(date_str: str, tickers: list[str]):
+def get_risk_limits(date_str: str, tickers: list[str], current_portfolio_value: float):
     """
     Mock the state and run the risk manager to get dynamic limits.
     """
-    # Create empty portfolio with initial capital
+    # Create empty portfolio with dynamic initial capital (current portfolio value)
     portfolio = {
-        "cash": 100000.0,
+        "cash": current_portfolio_value,
         "margin_requirement": 0.5,
         "margin_used": 0.0,
         "positions": {},
@@ -87,7 +91,7 @@ def get_dynamic_rf_rate(date_str: str, rf_df: pd.DataFrame) -> float:
     return 0.05 / 252 # Fallback
 
 
-def process_day(day_data: dict, rf_rate: float, previous_holdings: dict, previous_consensus: dict):
+def process_day(day_data: dict, rf_rate: float, portfolio: Portfolio, executor: TradeExecutor, previous_consensus: dict):
     date_str = day_data["date"]
     tickers = day_data["tickers"]
     
@@ -131,53 +135,132 @@ def process_day(day_data: dict, rf_rate: float, previous_holdings: dict, previou
             
     consensus_values = market.calculate_consensus()
     
-    # 2. Get Risk Limits & Prices
-    rm_tickers = [t for t in tickers if t != "CASH"]
-    risk_limits, prices = get_risk_limits(date_str, rm_tickers)
-    
-    # 3. Fetch 15-day trailing prices for decay logic
+    # 2. Extract 15-day trailing prices for decay logic
     prices_history = {}
     dt_end = pd.Timestamp(date_str)
     dt_start = dt_end - pd.Timedelta(days=15)
     
+    current_prices = {}
     for t in rm_tickers:
         try:
             df = get_price_data(t, dt_start.strftime("%Y-%m-%d"), date_str)
             prices_history[t] = df
+            if not df.empty and "close" in df.columns:
+                valid_closes = df["close"].dropna()
+                if not valid_closes.empty:
+                    current_prices[t] = float(valid_closes.iloc[-1])
+                else:
+                    current_prices[t] = 0.0
+            else:
+                current_prices[t] = 0.0
         except Exception as e:
             logger.warning(f"Failed to fetch price data for {t} from {dt_start.strftime('%Y-%m-%d')} to {date_str}: {e}")
             prices_history[t] = pd.DataFrame()
+            current_prices[t] = 0.0
     
-    # 4. Optimization
-    # The new pipeline will pass the actual calculated fund_wealth. If missing, defaults to 100k.
-    fund_wealth = day_data.get("fund_wealth", 100000.0) 
+    # 3. Calculate portfolio value BEFORE optimization
+    current_portfolio_value = calculate_portfolio_value(portfolio, current_prices)
     
+    # 4. Get Risk Limits dynamically scaled to current value
+    risk_limits, rm_prices = get_risk_limits(date_str, rm_tickers, current_portfolio_value)
+    
+    # We will use the risk manager's provided prices primarily, but fallback to current_prices if needed
+    for t in rm_tickers:
+        if t in rm_prices and rm_prices[t] > 0:
+            current_prices[t] = rm_prices[t]
+    
+    # 5. Extract previous holdings (net positions) dynamically from Portfolio
+    previous_holdings = {}
+    positions_state = portfolio.get_positions()
+    for t in rm_tickers:
+        if t in positions_state:
+            pos = positions_state[t]
+            net_holding = pos.get("long", 0) - pos.get("short", 0)
+            previous_holdings[t] = net_holding
+        else:
+            previous_holdings[t] = 0
+
+    # 6. Optimization
     optimal_shares, adjusted_consensus = calculate_optimal_portfolio(
         today_consensus=consensus_values,
         previous_consensus=previous_consensus,
         previous_holdings=previous_holdings,
         prices_history=prices_history,
         risk_limits=risk_limits,
-        initial_capital=fund_wealth,
+        initial_capital=current_portfolio_value,
         risk_free_rate=rf_rate
     )
     
+    # 7. Execute Delta Trades
+    executed_trades = []
+    for t in rm_tickers:
+        target_net_shares = optimal_shares.get(t, 0.0)
+        net_holding = previous_holdings.get(t, 0)
+        delta = target_net_shares - net_holding
+        
+        delta = int(round(delta))
+        price = current_prices.get(t, 0.0)
+        
+        action = None
+        quantity = 0
+        
+        if net_holding >= 0:
+            if delta > 0:
+                action = "buy"
+                quantity = delta
+            elif delta < 0:
+                action = "sell"
+                quantity = abs(delta)
+        else:  # net_holding < 0
+            if delta < 0:
+                action = "short"
+                quantity = abs(delta)
+            elif delta > 0:
+                action = "cover"
+                quantity = delta
+                
+        if action and quantity > 0 and price > 0:
+            executed_qty = executor.execute_trade(t, action, quantity, price, portfolio)
+            if executed_qty > 0:
+                executed_trades.append({
+                    "ticker": t,
+                    "action": action,
+                    "quantity": executed_qty,
+                    "price": price
+                })
+                
+    # 8. Calculate NEW portfolio value AFTER execution
+    updated_portfolio_value = calculate_portfolio_value(portfolio, current_prices)
+    
+    # Extract updated positions summary
+    updated_positions = {t: {"long": pos["long"], "short": pos["short"]} 
+                         for t, pos in portfolio.get_positions().items() 
+                         if pos["long"] > 0 or pos["short"] > 0}
+    
     return {
         "date": date_str,
+        "portfolio_value": updated_portfolio_value,
+        "executed_trades": executed_trades,
+        "updated_holdings": updated_positions,
         "consensus": consensus_values,
         "adjusted_consensus": adjusted_consensus,
-        "prices": prices,
+        "prices": rm_prices,
         "risk_limits": risk_limits,
         "optimal_shares": optimal_shares,
-        "fund_wealth": fund_wealth,
-        "objective_cash_constant": fund_wealth * rf_rate
+        "objective_cash_constant": current_portfolio_value * rf_rate
     }
 
 
 def main():
-    # Will read from the enriched output of the upstream wealth simulator
-    input_file = Path("data/enriched_decisions.jsonl")
-    output_file = Path("data/optimization_results_final.jsonl")
+    parser = argparse.ArgumentParser(description="Run Offline Optimization & Backtesting Engine")
+    parser.add_argument("--input-file", type=str, default="data/enriched_decisions.jsonl")
+    parser.add_argument("--output-file", type=str, default="data/optimization_results_final.jsonl")
+    parser.add_argument("--initial-cash", type=float, default=100000.0)
+    parser.add_argument("--margin-requirement", type=float, default=0.5)
+    args = parser.parse_args()
+
+    input_file = Path(args.input_file)
+    output_file = Path(args.output_file)
     
     if not input_file.exists():
         logger.error(f"Input file not found: {input_file}. Please run simulate_wealth_trajectory.py first.")
@@ -187,6 +270,20 @@ def main():
     
     with open(input_file, "r") as f:
         lines = f.readlines()
+        
+    # First pass: collect all unique tickers to initialize Portfolio
+    all_tickers = set()
+    for line in lines:
+        day_data = json.loads(line)
+        tickers = day_data.get("tickers", [])
+        all_tickers.update([t for t in tickers if t != "CASH"])
+        
+    portfolio = Portfolio(
+        tickers=list(all_tickers),
+        initial_cash=args.initial_cash,
+        margin_requirement=args.margin_requirement
+    )
+    executor = TradeExecutor()
         
     results = []
     
@@ -199,7 +296,6 @@ def main():
         rf_df = pd.DataFrame()
     
     # Memory state for the optimizer
-    previous_holdings = {}
     previous_consensus = {}
     
     for line in tqdm(lines):
@@ -210,12 +306,12 @@ def main():
             
             # Pure functional optimization pass over state
             res = process_day(day_data, rf_rate=rf_rate, 
-                              previous_holdings=previous_holdings,
+                              portfolio=portfolio,
+                              executor=executor,
                               previous_consensus=previous_consensus) 
             results.append(res)
             
             # Update memory state after each day
-            previous_holdings = res["optimal_shares"].copy()
             previous_consensus = res["adjusted_consensus"].copy()
             
         except Exception as e:
@@ -225,7 +321,7 @@ def main():
         for r in results:
             f.write(json.dumps(r) + "\n")
             
-    logger.info("Optimization complete.")
+    logger.info(f"Optimization complete. Final Portfolio Value: ${calculate_portfolio_value(portfolio, {}):.2f}")
 
 if __name__ == "__main__":
     main()
