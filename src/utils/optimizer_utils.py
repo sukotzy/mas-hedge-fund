@@ -117,7 +117,7 @@ def calculate_optimal_portfolio(
     tickers = set()
     tickers.update(today_consensus.keys())
     tickers.update(previous_holdings.keys())
-    tickers.discard("CASH")
+    # tickers.discard("CASH")  # Removed to stop forcibly dropping CASH signal
 
     # Determine current prices (latest close)
     current_prices = {}

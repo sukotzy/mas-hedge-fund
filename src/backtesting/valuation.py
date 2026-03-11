@@ -10,10 +10,10 @@ def calculate_portfolio_value(portfolio: Portfolio, current_prices: Mapping[str,
 
     total_value = cash + market value of longs - market value of shorts
     """
-    total_value = portfolio.get_cash()
+    total_value = portfolio.get_cash() + portfolio.get_margin_used()
     positions = portfolio.get_positions()
     for ticker, pos in positions.items():
-        price = float(current_prices[ticker])
+        price = float(current_prices.get(ticker, 0.0))
         long_value = pos["long"] * price
         total_value += long_value
         if pos["short"] > 0:
@@ -30,7 +30,7 @@ def compute_exposures(portfolio: Portfolio, current_prices: Mapping[str, float])
     long_exposure = 0.0
     short_exposure = 0.0
     for ticker, pos in positions.items():
-        price = float(current_prices[ticker])
+        price = float(current_prices.get(ticker, 0.0))
         long_exposure += pos["long"] * price
         short_exposure += pos["short"] * price
 

@@ -96,13 +96,18 @@ def process_day(day_data: dict, rf_rate: float, portfolio: Portfolio, executor: 
     tickers = day_data["tickers"]
     rm_tickers = [t for t in tickers if t != "CASH"]
     
+    active_tickers = set(rm_tickers)
+    for t, pos in portfolio.get_positions().items():
+        if pos["long"] > 0 or pos["short"] > 0:
+            active_tickers.add(t)
+    
     # 1. Fetch 15-day trailing prices for decay logic and get today's prices for settlement
     prices_history = {}
     dt_end = pd.Timestamp(date_str)
     dt_start = dt_end - pd.Timedelta(days=15)
     
     current_prices = {}
-    for t in rm_tickers:
+    for t in active_tickers:
         try:
             df = get_price_data(t, dt_start.strftime("%Y-%m-%d"), date_str)
             prices_history[t] = df
@@ -111,13 +116,16 @@ def process_day(day_data: dict, rf_rate: float, portfolio: Portfolio, executor: 
                 if not valid_closes.empty:
                     current_prices[t] = float(valid_closes.iloc[-1])
                 else:
-                    current_prices[t] = 0.0
+                    current_prices[t] = previous_prices.get(t, 0.0)
             else:
-                current_prices[t] = 0.0
+                current_prices[t] = previous_prices.get(t, 0.0)
         except Exception as e:
             logger.warning(f"Failed to fetch price data for {t} from {dt_start.strftime('%Y-%m-%d')} to {date_str}: {e}")
             prices_history[t] = pd.DataFrame()
-            current_prices[t] = 0.0
+            current_prices[t] = previous_prices.get(t, 0.0)
+
+    # Update State Memory IMMEDIATELY so `settle_bets` can rely on it if needed
+    previous_prices.update(current_prices)
 
     # 1.1 Settle Yesterday's Bets (Zero-Sum Settlement)
     if previous_bets and previous_prices:
@@ -127,12 +135,17 @@ def process_day(day_data: dict, rf_rate: float, portfolio: Portfolio, executor: 
     market = BettingMarket()
     agent_names = ["fundamental", "technical", "valuation", "sentiment"]
     
+    logger.info(f"\n[{date_str}] --- DAY START ---")
+    
     for agent in agent_names:
         if agent not in day_data:
             continue
         decision = day_data[agent]
         
         dynamic_cap = agent_capital[agent].get("external_capital", 0) + agent_capital[agent].get("internal_capital", 0)
+        logger.info(f"[{date_str}] Allocator {agent.upper()} Capital: ${dynamic_cap:,.2f} "
+                    f"(External: ${agent_capital[agent].get('external_capital', 0):,.2f}, "
+                    f"Internal: ${agent_capital[agent].get('internal_capital', 0):,.2f})")
         
         allocations = decision.get("allocations", [])
         for alloc in allocations:
@@ -150,6 +163,7 @@ def process_day(day_data: dict, rf_rate: float, portfolio: Portfolio, executor: 
                 
             # Create Bet
             bet_amt = (amount / 100.0) * dynamic_cap
+            logger.info(f"    -> Bet: {direction.upper()} {ticker} | Weight: {amount}% | USD: ${bet_amt:,.2f}")
             
             b = Bet(
                 ticker=ticker,
@@ -166,23 +180,32 @@ def process_day(day_data: dict, rf_rate: float, portfolio: Portfolio, executor: 
     current_portfolio_value = calculate_portfolio_value(portfolio, current_prices)
     
     # 4. Get Risk Limits dynamically scaled to current value
-    risk_limits, rm_prices = get_risk_limits(date_str, rm_tickers, current_portfolio_value)
+    risk_limits, rm_prices = get_risk_limits(date_str, list(active_tickers), current_portfolio_value)
     
     # We will use the risk manager's provided prices primarily, but fallback to current_prices if needed
-    for t in rm_tickers:
+    for t in active_tickers:
         if t in rm_prices and rm_prices[t] > 0:
             current_prices[t] = rm_prices[t]
     
     # 5. Extract previous holdings (net positions) dynamically from Portfolio
     previous_holdings = {}
     positions_state = portfolio.get_positions()
-    for t in rm_tickers:
+    for t in active_tickers:
         if t in positions_state:
             pos = positions_state[t]
             net_holding = pos.get("long", 0) - pos.get("short", 0)
             previous_holdings[t] = net_holding
         else:
             previous_holdings[t] = 0
+
+    logger.info(f"[{date_str}] Optimizer Inputs:")
+    logger.info(f"    -> Initial Cash Flow Pool: ${current_portfolio_value:,.2f}")
+    logger.info(f"    -> RF Rate: {rf_rate:.6f}")
+    logger.info(f"    -> Asset Pool (Risk Managed Tickers count): {len(active_tickers)}")
+    for t in list(active_tickers)[:5]:  # Print first 5 to avoid spamming the console
+         logger.info(f"         - {t}: Consensus={consensus_values.get(t, 0.0):.4f}, Risk Limit QTY={risk_limits.get(t, 0)}, Prev Hold QTY={previous_holdings.get(t, 0)}")
+    if len(active_tickers) > 5:
+         logger.info(f"         ... and {len(active_tickers) - 5} more tickers.")
 
     # 6. Optimization
     optimal_shares, adjusted_consensus = calculate_optimal_portfolio(
@@ -195,9 +218,16 @@ def process_day(day_data: dict, rf_rate: float, portfolio: Portfolio, executor: 
         risk_free_rate=rf_rate
     )
     
+    logger.info(f"[{date_str}] Optimizer Output (Target Shares to Hold):")
+    non_zero_targets = {t: shares for t, shares in optimal_shares.items() if shares != 0}
+    for t, shares in list(non_zero_targets.items())[:10]:
+        logger.info(f"    -> {t}: target={shares} shares")
+    if len(non_zero_targets) > 10:
+        logger.info(f"    ... and {len(non_zero_targets) - 10} more targets.")
+    
     # 7. Execute Delta Trades
     executed_trades = []
-    for t in rm_tickers:
+    for t in active_tickers:
         target_net_shares = optimal_shares.get(t, 0.0)
         net_holding = previous_holdings.get(t, 0)
         delta = target_net_shares - net_holding
@@ -242,7 +272,6 @@ def process_day(day_data: dict, rf_rate: float, portfolio: Portfolio, executor: 
                          if pos["long"] > 0 or pos["short"] > 0}
                          
     # 9. Update state memory for tomorrow
-    previous_prices.update(current_prices)
     for agent in agent_names:
         if agent in day_data:
             previous_bets[agent] = day_data[agent]
@@ -345,7 +374,7 @@ def main():
         for r in results:
             f.write(json.dumps(r) + "\n")
             
-    logger.info(f"Optimization complete. Final Portfolio Value: ${calculate_portfolio_value(portfolio, {}):.2f}")
+    logger.info(f"Optimization complete. Final Portfolio Value: ${calculate_portfolio_value(portfolio, previous_prices):.2f}")
 
 if __name__ == "__main__":
     main()
