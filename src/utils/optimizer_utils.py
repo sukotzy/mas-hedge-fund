@@ -5,66 +5,83 @@ from scipy.optimize import linprog
 
 logger = logging.getLogger(__name__)
 
-def solve_optimization_lp(
-    consensus_values: dict[str, float],
+def solve_optimization_qp(
+    adjusted_consensus: dict[str, float],
+    previous_holdings: dict[str, float],
     current_prices: dict[str, float],
+    portfolio_value: float,
     risk_limits: dict[str, float],
-    initial_capital: float,
-    risk_free_rate: float
+    lambda_penalty: float = 0.05
 ) -> dict[str, float]:
     """
-    Runs LP Optimization.
-    Objective: Maximize Sum(Value_i * Action_i) + (Initial_Capital * RiskFreeRate)
-    Constraints:
-    1. |Action_i * Price_i| <= Risk_Limit_i
-    2. Sum(Action_i * Price_i) = 0 (Self-financing via collateral)
+    Runs Quadratic Programming Optimization with Turnover Penalty.
+    Objective: Minimize tracking error to target weights + lambda_penalty * turnover
+    Constraints: 
+    1. sum(abs(w_i)) <= 1.0 (Gross exposure <= 100%)
+    2. |w_i| <= min(risk_limit_i / portfolio_value, 0.4)
     """
-    tickers = list(current_prices.keys())
-    if "CASH" not in tickers:
-        tickers.append("CASH")
-        
-    c = []
-    prices = []
-    bounds = []
+    from scipy.optimize import minimize
     
-    for t in tickers:
-        value = consensus_values.get(t, 0.0)
-        c.append(-value) # Minimize negative value
-        
-        if t == "CASH":
-            price = 1.0 # Cash is always $1
-            prices.append(price)
-            bounds.append((-initial_capital, initial_capital))
-        else:
-            price = current_prices[t]
-            prices.append(price)
-            
-            limit_usd = risk_limits.get(t, 0.0)
-            
-            if price > 0:
-                max_shares = limit_usd / price
-                bounds.append((-max_shares, max_shares))
-            else:
-                bounds.append((0, 0))
-            
-    if not c or all(val == 0.0 for val in c):
-        logger.warning("All consensus values are zero (no bets). Returning zero allocations.")
-        return {t: 0.0 for t in tickers}
-        
-    A_eq = [prices]
-    b_eq = [0.0]
+    tickers = [t for t in current_prices.keys() if t != "CASH"]
+    n = len(tickers)
     
-    res = linprog(c, A_eq=A_eq, b_eq=b_eq, bounds=bounds, method='highs')
-    
-    results = {}
-    if res.success:
+    if n == 0 or portfolio_value <= 0:
+        return {t: 0.0 for t in current_prices.keys()}
+        
+    # 1. Target Weights
+    total_score = sum(abs(v) for v in adjusted_consensus.values())
+    target_w = np.zeros(n)
+    if total_score > 0:
         for i, t in enumerate(tickers):
-            results[t] = res.x[i]
-    else:
-        logger.warning(f"Optimization failed: {res.message}")
-        for t in tickers:
+            target_w[i] = adjusted_consensus.get(t, 0.0) / total_score
+            
+    # 2. Previous Weights
+    prev_w = np.zeros(n)
+    for i, t in enumerate(tickers):
+        prev_w[i] = (previous_holdings.get(t, 0.0) * current_prices.get(t, 0.0)) / portfolio_value
+            
+    # 3. Bounds
+    bounds = []
+    for t in tickers:
+        limit_usd = risk_limits.get(t, 0.0)
+        max_w = limit_usd / portfolio_value
+        max_w = min(max_w, 0.4) # capped at 40%
+        bounds.append((-max_w, max_w))
+        
+    # Objective Function
+    def objective(w):
+        return np.sum((w - target_w)**2) + lambda_penalty * np.sum(np.abs(w - prev_w))
+        
+    # Constraints: Sum(abs(w_i)) <= 1.0 -> 1.0 - sum(abs(w)) >= 0
+    def constraint_gross_exposure(w):
+        return 1.0 - np.sum(np.abs(w))
+        
+    # Initial guess
+    w0 = prev_w.copy()
+    
+    res = minimize(
+        objective,
+        w0,
+        method='SLSQP',
+        bounds=bounds,
+        constraints=[{'type': 'ineq', 'fun': constraint_gross_exposure}],
+        options={'maxiter': 1000}
+    )
+    
+    fin_w = res.x if res.success else prev_w
+    if not res.success:
+        logger.warning(f"Optimization failed: {res.message}. Falling back to previous weights.")
+        
+    results = {}
+    for i, t in enumerate(tickers):
+        price = current_prices.get(t, 0.0)
+        if price > 0:
+            target_shares = (fin_w[i] * portfolio_value) / price
+            results[t] = target_shares
+        else:
             results[t] = 0.0
-                
+            
+    results["CASH"] = 0.0
     return results
 
 def calculate_optimal_portfolio(
@@ -81,7 +98,7 @@ def calculate_optimal_portfolio(
     
     Part A: Signal Routing (Replacement vs. Decay)
     Part B: Four-Tier Kinematic Filter (for missing signals)
-    Part C: LP Optimization
+    Part C: QP Optimization
     
     Arguments:
     - today_consensus: dict of net consensus today per ticker.
@@ -206,13 +223,14 @@ def calculate_optimal_portfolio(
         if abs(adjusted_consensus[t]) < 1e-6:
             adjusted_consensus[t] = 0.0
 
-    # Part C: LP Optimization
-    optimal_shares = solve_optimization_lp(
-        consensus_values=adjusted_consensus,
+    # Part C: QP Optimization
+    optimal_shares = solve_optimization_qp(
+        adjusted_consensus=adjusted_consensus,
+        previous_holdings=previous_holdings,
         current_prices=current_prices,
+        portfolio_value=initial_capital,
         risk_limits=risk_limits,
-        initial_capital=initial_capital,
-        risk_free_rate=risk_free_rate
+        lambda_penalty=0.05
     )
 
     return optimal_shares, adjusted_consensus

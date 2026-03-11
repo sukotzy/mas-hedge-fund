@@ -8,7 +8,6 @@ from pathlib import Path
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../..')))
 
 import pandas as pd
-from scipy.optimize import linprog
 import numpy as np
 import datetime
 import argparse
@@ -22,6 +21,7 @@ os.environ["USE_LOCAL_DATA"] = "true"
 from src.market.betting_market import BettingMarket
 from src.schemas import Bet, MarketSignal
 from src.agents.risk_manager import risk_management_agent
+from src.agents.meta_manager import settle_bets
 from src.tools.api import get_prices, prices_to_df, get_price_data
 from src.utils.optimizer_utils import calculate_optimal_portfolio
 from src.backtesting.portfolio import Portfolio
@@ -91,51 +91,12 @@ def get_dynamic_rf_rate(date_str: str, rf_df: pd.DataFrame) -> float:
     return 0.05 / 252 # Fallback
 
 
-def process_day(day_data: dict, rf_rate: float, portfolio: Portfolio, executor: TradeExecutor, previous_consensus: dict):
+def process_day(day_data: dict, rf_rate: float, portfolio: Portfolio, executor: TradeExecutor, previous_consensus: dict, agent_capital: dict, previous_bets: dict, previous_prices: dict):
     date_str = day_data["date"]
     tickers = day_data["tickers"]
+    rm_tickers = [t for t in tickers if t != "CASH"]
     
-    # 1. Reconstruct Betting Market
-    market = BettingMarket()
-    agent_names = ["fundamental", "technical", "valuation", "sentiment"]
-    
-    for agent in agent_names:
-        if agent not in day_data:
-            continue
-        decision = day_data[agent]
-        # Instead of generic 100.0, this will naturally read the updated agent_capital 
-        # that the new simulator pipeline writes into "starting_capital".
-        allocator_capital = decision.get("starting_capital", 100.0) 
-        
-        allocations = decision.get("allocations", [])
-        for alloc in allocations:
-            ticker = alloc.get("ticker")
-            direction = alloc.get("direction")
-            amount = alloc.get("amount", 0.0)
-            
-            # Map string to Enum
-            if direction == "long":
-                sig = MarketSignal.LONG
-            elif direction == "short":
-                sig = MarketSignal.SHORT
-            else:
-                continue # Skip neutral/cash for now if it doesn't map directly
-                
-            # Create Bet
-            bet_amt = (amount / 100.0) * allocator_capital
-            
-            b = Bet(
-                ticker=ticker,
-                direction=sig,
-                amount=bet_amt,
-                conviction=1.0,
-                reasoning="Extracted from JSONL"
-            )
-            market.place_bet(b)
-            
-    consensus_values = market.calculate_consensus()
-    
-    # 2. Extract 15-day trailing prices for decay logic
+    # 1. Fetch 15-day trailing prices for decay logic and get today's prices for settlement
     prices_history = {}
     dt_end = pd.Timestamp(date_str)
     dt_start = dt_end - pd.Timedelta(days=15)
@@ -157,6 +118,49 @@ def process_day(day_data: dict, rf_rate: float, portfolio: Portfolio, executor: 
             logger.warning(f"Failed to fetch price data for {t} from {dt_start.strftime('%Y-%m-%d')} to {date_str}: {e}")
             prices_history[t] = pd.DataFrame()
             current_prices[t] = 0.0
+
+    # 1.1 Settle Yesterday's Bets (Zero-Sum Settlement)
+    if previous_bets and previous_prices:
+        agent_capital = settle_bets(agent_capital, previous_bets, current_prices, previous_prices)
+        
+    # 2. Reconstruct Betting Market
+    market = BettingMarket()
+    agent_names = ["fundamental", "technical", "valuation", "sentiment"]
+    
+    for agent in agent_names:
+        if agent not in day_data:
+            continue
+        decision = day_data[agent]
+        
+        dynamic_cap = agent_capital[agent].get("external_capital", 0) + agent_capital[agent].get("internal_capital", 0)
+        
+        allocations = decision.get("allocations", [])
+        for alloc in allocations:
+            ticker = alloc.get("ticker")
+            direction = alloc.get("direction")
+            amount = alloc.get("amount", 0.0)
+            
+            # Map string to Enum
+            if direction == "long":
+                sig = MarketSignal.LONG
+            elif direction == "short":
+                sig = MarketSignal.SHORT
+            else:
+                continue # Skip neutral/cash for now if it doesn't map directly
+                
+            # Create Bet
+            bet_amt = (amount / 100.0) * dynamic_cap
+            
+            b = Bet(
+                ticker=ticker,
+                direction=sig,
+                amount=bet_amt,
+                conviction=1.0,
+                reasoning="Extracted from JSONL"
+            )
+            market.place_bet(b)
+            
+    consensus_values = market.calculate_consensus()
     
     # 3. Calculate portfolio value BEFORE optimization
     current_portfolio_value = calculate_portfolio_value(portfolio, current_prices)
@@ -236,6 +240,12 @@ def process_day(day_data: dict, rf_rate: float, portfolio: Portfolio, executor: 
     updated_positions = {t: {"long": pos["long"], "short": pos["short"]} 
                          for t, pos in portfolio.get_positions().items() 
                          if pos["long"] > 0 or pos["short"] > 0}
+                         
+    # 9. Update state memory for tomorrow
+    previous_prices.update(current_prices)
+    for agent in agent_names:
+        if agent in day_data:
+            previous_bets[agent] = day_data[agent]
     
     return {
         "date": date_str,
@@ -297,6 +307,17 @@ def main():
     
     # Memory state for the optimizer
     previous_consensus = {}
+    agent_capital = {
+        agent: {
+            "agent_name": agent,
+            "allocated_capital": 50000.0,
+            "external_capital": 50000.0,
+            "internal_capital": 50000.0,
+            "roi_history": []
+        } for agent in ["fundamental", "technical", "valuation", "sentiment"]
+    }
+    previous_bets = {}
+    previous_prices = {}
     
     for line in tqdm(lines):
         day_data = json.loads(line)
@@ -308,7 +329,10 @@ def main():
             res = process_day(day_data, rf_rate=rf_rate, 
                               portfolio=portfolio,
                               executor=executor,
-                              previous_consensus=previous_consensus) 
+                              previous_consensus=previous_consensus,
+                              agent_capital=agent_capital,
+                              previous_bets=previous_bets,
+                              previous_prices=previous_prices) 
             results.append(res)
             
             # Update memory state after each day
