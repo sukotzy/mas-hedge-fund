@@ -124,9 +124,6 @@ def process_day(day_data: dict, rf_rate: float, portfolio: Portfolio, executor: 
             prices_history[t] = pd.DataFrame()
             current_prices[t] = previous_prices.get(t, 0.0)
 
-    # Update State Memory IMMEDIATELY so `settle_bets` can rely on it if needed
-    previous_prices.update(current_prices)
-
     # 1.1 Settle Yesterday's Bets (Zero-Sum Settlement)
     if previous_bets and previous_prices:
         agent_capital = settle_bets(agent_capital, previous_bets, current_prices, previous_prices)
@@ -272,6 +269,7 @@ def process_day(day_data: dict, rf_rate: float, portfolio: Portfolio, executor: 
                          if pos["long"] > 0 or pos["short"] > 0}
                          
     # 9. Update state memory for tomorrow
+    previous_prices.update(current_prices)
     for agent in agent_names:
         if agent in day_data:
             previous_bets[agent] = day_data[agent]
