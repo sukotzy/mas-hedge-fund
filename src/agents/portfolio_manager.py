@@ -42,9 +42,18 @@ def portfolio_management_agent(state: AgentState, agent_id: str = "portfolio_man
         else:
             risk_manager_id = "risk_management_agent"  # Fallback for CLI
 
-        risk_data = analyst_signals.get(risk_manager_id, {}).get(ticker, {})
-        position_limits[ticker] = risk_data.get("remaining_position_limit", 0.0)
-        current_prices[ticker] = float(risk_data.get("current_price", 0.0))
+        portfolio_value = portfolio.get("portfolio_value", portfolio.get("cash", 100000.0))
+        risk_signals = analyst_signals.get(risk_manager_id, {})
+        
+        if ticker in risk_signals:
+            risk_data = risk_signals[ticker]
+            limit = float(risk_data.get("reasoning", {}).get("position_limit", risk_data.get("remaining_position_limit", 0.0)))
+            position_limits[ticker] = limit
+            current_prices[ticker] = float(risk_data.get("current_price", 0.0))
+        else:
+            # Fallback if Risk Manager is bypassed
+            position_limits[ticker] = portfolio_value
+            current_prices[ticker] = 0.0
 
         # Calculate maximum shares allowed based on position limit and price
         if current_prices[ticker] > 0:
@@ -100,6 +109,8 @@ def portfolio_management_agent(state: AgentState, agent_id: str = "portfolio_man
     # 5. Call Optimization
     initial_capital = portfolio.get("cash", 100000.0)
     
+    use_risk_manager = bool(analyst_signals.get(risk_manager_id))
+
     optimal_shares, adjusted_consensus = calculate_optimal_portfolio(
         today_consensus=consensus_values,
         previous_consensus=previous_consensus,
@@ -107,7 +118,8 @@ def portfolio_management_agent(state: AgentState, agent_id: str = "portfolio_man
         prices_history=prices_history,
         risk_limits=risk_limits_usd,
         initial_capital=initial_capital,
-        risk_free_rate=0.0
+        risk_free_rate=0.0,
+        use_risk_manager=use_risk_manager
     )
 
     # 6. Store updated consensus back in state directly

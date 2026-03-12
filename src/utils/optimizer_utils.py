@@ -11,7 +11,8 @@ def solve_optimization_qp(
     current_prices: dict[str, float],
     portfolio_value: float,
     risk_limits: dict[str, float],
-    lambda_penalty: float = 0.05
+    lambda_penalty: float = 0.05,
+    use_risk_manager: bool = True
 ) -> dict[str, float]:
     """
     Runs Quadratic Programming Optimization with Turnover Penalty.
@@ -43,9 +44,15 @@ def solve_optimization_qp(
     # 3. Bounds
     bounds = []
     for t in tickers:
-        limit_usd = risk_limits.get(t, 0.0)
+        limit_usd = risk_limits.get(t, portfolio_value)
         max_w = limit_usd / portfolio_value
-        max_w = min(max_w, 0.4) # capped at 40%
+        
+        # If Risk Manager is disabled, do not apply the 0.4 hardcap
+        if use_risk_manager:
+            max_w = min(max_w, 0.4)
+        else:
+            max_w = min(max_w, 1.0) # Cap at 100% max per asset
+
         bounds.append((-max_w, max_w))
         
     # Objective Function
@@ -91,7 +98,8 @@ def calculate_optimal_portfolio(
     prices_history: dict[str, pd.DataFrame],
     risk_limits: dict[str, float],
     initial_capital: float,
-    risk_free_rate: float
+    risk_free_rate: float,
+    use_risk_manager: bool = True
 ) -> tuple[dict[str, float], dict[str, float]]:
     """
     Stateful, Four-Tier Kinematic Risk Model optimizer.
@@ -230,7 +238,8 @@ def calculate_optimal_portfolio(
         current_prices=current_prices,
         portfolio_value=initial_capital,
         risk_limits=risk_limits,
-        lambda_penalty=0.05
+        lambda_penalty=0.05,
+        use_risk_manager=use_risk_manager
     )
 
     return optimal_shares, adjusted_consensus
