@@ -8,7 +8,7 @@ os.environ["USE_LOCAL_DATA"] = "true"
 os.environ["PYTHONPATH"] = "."
 
 # 创建输出文件夹
-out_dir = Path("data/backtests")
+out_dir = Path("data/backtests_with_risk_manager")
 out_dir.mkdir(parents=True, exist_ok=True)
 
 print("=========================================================================")
@@ -75,7 +75,7 @@ for exp_dir in sorted(experiment_dirs):
         "--input-file", str(temp_file),
         "--output-file", str(output_file),
         "--initial-cash", "100000.0",
-        "--margin-requirement", "0.5"
+        "--margin-requirement", "0.25"
     ]
     
     try:
