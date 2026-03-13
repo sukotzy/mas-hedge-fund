@@ -109,7 +109,7 @@ def risk_management_agent(state: AgentState, agent_id: str = "risk_management_ag
         if ticker not in current_prices or current_prices[ticker] <= 0:
             progress.update_status(agent_id, ticker, "Failed: No valid price data")
             risk_analysis[ticker] = {
-                "remaining_position_limit": 0.0,
+                "position_limit": 0.0,
                 "current_price": 0.0,
                 "reasoning": {
                     "error": "Missing price data for risk calculation"
@@ -165,14 +165,8 @@ def risk_management_agent(state: AgentState, agent_id: str = "risk_management_ag
         # Convert to dollar position limit
         position_limit = total_portfolio_value * combined_limit_pct
         
-        # Calculate remaining limit for this position
-        remaining_position_limit = position_limit - current_position_value
-        
-        # Ensure we don't exceed available cash
-        max_position_size = min(remaining_position_limit, portfolio.get("cash", 0))
-        
         risk_analysis[ticker] = {
-            "remaining_position_limit": float(max_position_size),
+            "position_limit": float(position_limit),
             "current_price": float(current_price),
             "volatility_metrics": {
                 "daily_volatility": float(vol_data.get("daily_volatility", 0.05)),
@@ -183,12 +177,10 @@ def risk_management_agent(state: AgentState, agent_id: str = "risk_management_ag
             "correlation_metrics": corr_metrics,
             "reasoning": {
                 "portfolio_value": float(total_portfolio_value),
-                "current_position_value": float(current_position_value),
                 "base_position_limit_pct": float(vol_adjusted_limit_pct),
                 "correlation_multiplier": float(corr_multiplier),
                 "combined_position_limit_pct": float(combined_limit_pct),
                 "position_limit": float(position_limit),
-                "remaining_limit": float(remaining_position_limit),
                 "available_cash": float(portfolio.get("cash", 0)),
                 "risk_adjustment": f"Volatility x Correlation adjusted: {combined_limit_pct:.1%} (base {vol_adjusted_limit_pct:.1%})"
             },
@@ -197,7 +189,7 @@ def risk_management_agent(state: AgentState, agent_id: str = "risk_management_ag
         progress.update_status(
             agent_id, 
             ticker, 
-            f"Adj. limit: {combined_limit_pct:.1%}, Available: ${max_position_size:.0f}"
+            f"Adj. limit: {combined_limit_pct:.1%}, Limit: ${position_limit:.0f}"
         )
 
     progress.update_status(agent_id, None, "Done")

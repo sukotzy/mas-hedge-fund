@@ -34,20 +34,19 @@ logger = logging.getLogger(__name__)
 
 # Run LP is handled by solve_optimization_lp in optimizer_utils now
 
-def get_risk_limits(date_str: str, tickers: list[str], current_portfolio_value: float, disable_risk_manager: bool = False):
+def get_risk_limits(date_str: str, tickers: list[str], portfolio: Portfolio, current_portfolio_value: float, disable_risk_manager: bool = False):
     """
-    Mock the state and run the risk manager to get dynamic limits.
+    Pass the portfolio state and run the risk manager to get dynamic limits.
     """
     if disable_risk_manager:
         limits = {t: current_portfolio_value for t in tickers}
         return limits, {}
 
-    # Create empty portfolio with dynamic initial capital (current portfolio value)
-    portfolio = {
-        "cash": current_portfolio_value,
-        "margin_requirement": 0.5,
-        "margin_used": 0.0,
-        "positions": {},
+    portfolio_state = {
+        "cash": portfolio.get_cash(),
+        "margin_requirement": getattr(portfolio, 'margin_requirement', 0.5),
+        "margin_used": portfolio.get_margin_used(),
+        "positions": portfolio.get_positions(),
         "realized_gains": {}
     }
     
@@ -57,7 +56,7 @@ def get_risk_limits(date_str: str, tickers: list[str], current_portfolio_value: 
             "tickers": tickers,
             "start_date": date_str,
             "end_date": date_str,
-            "portfolio": portfolio,
+            "portfolio": portfolio_state,
             "analyst_signals": {}
         },
         "metadata": {"show_reasoning": False}
@@ -74,7 +73,7 @@ def get_risk_limits(date_str: str, tickers: list[str], current_portfolio_value: 
     limits = {}
     prices = {}
     for t, data in risk_analysis.items():
-        limits[t] = float(data.get("reasoning", {}).get("position_limit", data.get("remaining_position_limit", 0.0)))
+        limits[t] = float(data.get("position_limit", data.get("reasoning", {}).get("position_limit", 0.0)))
         prices[t] = data["current_price"]
         
     return limits, prices
@@ -181,7 +180,7 @@ def process_day(day_data: dict, rf_rate: float, portfolio: Portfolio, executor: 
     current_portfolio_value = calculate_portfolio_value(portfolio, current_prices)
     
     # 4. Get Risk Limits dynamically scaled to current value
-    risk_limits, rm_prices = get_risk_limits(date_str, list(active_tickers), current_portfolio_value, disable_risk_manager)
+    risk_limits, rm_prices = get_risk_limits(date_str, list(active_tickers), portfolio, current_portfolio_value, disable_risk_manager)
     
     # We will use the risk manager's provided prices primarily, but fallback to current_prices if needed
     for t in active_tickers:

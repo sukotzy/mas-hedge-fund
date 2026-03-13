@@ -47,7 +47,7 @@ def portfolio_management_agent(state: AgentState, agent_id: str = "portfolio_man
         
         if ticker in risk_signals:
             risk_data = risk_signals[ticker]
-            limit = float(risk_data.get("reasoning", {}).get("position_limit", risk_data.get("remaining_position_limit", 0.0)))
+            limit = float(risk_data.get("position_limit", risk_data.get("reasoning", {}).get("position_limit", 0.0)))
             position_limits[ticker] = limit
             current_prices[ticker] = float(risk_data.get("current_price", 0.0))
         else:
