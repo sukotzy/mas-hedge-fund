@@ -43,3 +43,4 @@ urllib3>=2.0.0,<3.0.0
 
 # Data Sources
 wrds>=3.1.0
+yfinance>=0.2.40
