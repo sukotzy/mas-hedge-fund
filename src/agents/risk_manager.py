@@ -264,25 +264,25 @@ def calculate_volatility_adjusted_limit(annualized_volatility: float) -> float:
     Calculate position limit as percentage of portfolio based on volatility.
     
     Logic:
-    - Low volatility (<15%): Up to 25% allocation
-    - Medium volatility (15-30%): 15-20% allocation  
-    - High volatility (>30%): 10-15% allocation
-    - Very high volatility (>50%): Max 10% allocation
+    - Low volatility (<15%): Up to 50% allocation (1.25x base)
+    - Medium volatility (15-30%): 30-40% allocation
+    - High volatility (>30%): 20-30% allocation
+    - Very high volatility (>50%): Max 20% allocation (0.50x base)
     """
-    base_limit = 0.20  # 20% baseline
+    base_limit = 0.40  # 40% baseline
     
     if annualized_volatility < 0.15:  # Low volatility
         # Allow higher allocation for stable stocks
-        vol_multiplier = 1.25  # Up to 25%
+        vol_multiplier = 1.25  # Up to 50%
     elif annualized_volatility < 0.30:  # Medium volatility  
         # Standard allocation with slight adjustment based on volatility
-        vol_multiplier = 1.0 - (annualized_volatility - 0.15) * 0.5  # 20% -> 12.5%
+        vol_multiplier = 1.0 - (annualized_volatility - 0.15) * 0.5  # 40% -> 25% (Base * 1.0 to Base * 0.625)
     elif annualized_volatility < 0.50:  # High volatility
         # Reduce allocation significantly
-        vol_multiplier = 0.75 - (annualized_volatility - 0.30) * 0.5  # 15% -> 5%
+        vol_multiplier = 0.75 - (annualized_volatility - 0.30) * 0.5  # 30% -> 20% (Base * 0.75 to Base * 0.50)
     else:  # Very high volatility (>50%)
         # Minimum allocation for very risky stocks
-        vol_multiplier = 0.50  # Max 10%
+        vol_multiplier = 0.50  # Max 20%
     
     # Apply bounds to ensure reasonable limits
     vol_multiplier = max(0.25, min(1.25, vol_multiplier))  # 5% to 25% range

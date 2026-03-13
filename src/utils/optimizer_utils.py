@@ -47,9 +47,10 @@ def solve_optimization_qp(
         limit_usd = risk_limits.get(t, portfolio_value)
         max_w = limit_usd / portfolio_value
         
-        # If Risk Manager is disabled, do not apply the 0.4 hardcap
+        # Risk Manager natively provides dynamic bounds based on volatility and correlation.
+        # We cap the optimizer strictly at 60% (0.6) gross exposure per asset mathematically if risk manager is used.
         if use_risk_manager:
-            max_w = min(max_w, 0.4)
+            max_w = min(max_w, 0.6)
         else:
             max_w = min(max_w, 1.0) # Cap at 100% max per asset
 
