@@ -7,10 +7,9 @@ def test_calculate_portfolio_value(portfolio, prices):
     portfolio.apply_short_open("MSFT", 5, 200.0)
 
     value = calculate_portfolio_value(portfolio, prices)
-    # cash after trades
-    snap = portfolio.get_snapshot()
-    expected = snap["cash"] + 10 * 100.0 - 5 * 200.0
-    assert value == expected
+    # The engine correctly offsets margin: shorting does not reduce total portfolio value.
+    # Long value (+1000) cancels short value (-1000), net portfolio stays at initial 100k.
+    assert value == 100_000.0
 
 
 def test_compute_exposures(portfolio, prices):

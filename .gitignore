@@ -27,6 +27,7 @@ env/
 ENV/
 .venv
 hf2/
+hf/
 
 # IDEs
 .vscode/
