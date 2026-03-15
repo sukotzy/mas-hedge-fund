@@ -510,57 +510,60 @@ def main():
     # Memory state
     previous_consensus = {}
     previous_prices = {}
-    results = []
+    processed_count = 0
     
     print("=========================================================================")
     print("🚀 Selection-Only Benchmark Backtest (Ablation Experiment) 🚀")
     print("=========================================================================")
     
-    for date in tqdm(target_dates, desc="Selection-Only Backtest"):
-        date_str = pd.Timestamp(date).strftime("%Y-%m-%d")
-        
-        try:
-            tasks_json = df_candidates.loc[date, "tasks"]
-            tasks = json.loads(tasks_json)
+    # Open output file for immediate writing (OOM prevention)
+    with open(output_path, "w") as out_f:
+        for date in tqdm(target_dates, desc="Selection-Only Backtest"):
+            date_str = pd.Timestamp(date).strftime("%Y-%m-%d")
             
-            rf_rate = get_dynamic_rf_rate(date_str, rf_df)
-            
-            res = process_day_selection_only(
-                date_str=date_str,
-                tasks=tasks,
-                rf_rate=rf_rate,
-                portfolio=portfolio,
-                executor=executor,
-                previous_consensus=previous_consensus,
-                previous_prices=previous_prices,
-                price_matrix=price_matrix,
-                disable_risk_manager=args.disable_risk_manager
-            )
-            results.append(res)
-            
-            # Update memory for next day
-            previous_consensus = res["adjusted_consensus"].copy()
-            
-            # Apply daily interest to cash balance
-            interest_added = portfolio.add_cash_interest(rf_rate)
-            if interest_added > 0:
-                logger.info(f"[{date_str}] Interest added to cash: ${interest_added:,.2f} (@ daily rate {rf_rate:.6f})")
-            
-        except Exception as e:
-            logger.error(f"Error processing {date_str}: {e}")
-            import traceback
-            traceback.print_exc()
-    
-    # Write results
-    with open(output_path, "w") as f:
-        for r in results:
-            f.write(json.dumps(r) + "\n")
+            try:
+                tasks_json = df_candidates.loc[date, "tasks"]
+                tasks = json.loads(tasks_json)
+                
+                rf_rate = get_dynamic_rf_rate(date_str, rf_df)
+                
+                res = process_day_selection_only(
+                    date_str=date_str,
+                    tasks=tasks,
+                    rf_rate=rf_rate,
+                    portfolio=portfolio,
+                    executor=executor,
+                    previous_consensus=previous_consensus,
+                    previous_prices=previous_prices,
+                    price_matrix=price_matrix,
+                    disable_risk_manager=args.disable_risk_manager
+                )
+                
+                # Write IMMEDIATELY to prevents results list from growing too large
+                out_f.write(json.dumps(res) + "\n")
+                out_f.flush()
+                processed_count += 1
+                
+                # Update memory for next day
+                previous_consensus = res["adjusted_consensus"].copy()
+                
+                # Apply daily interest to cash balance
+                interest_added = portfolio.add_cash_interest(rf_rate)
+                if interest_added > 0:
+                    # Only log occasionally in long runs to avoid console bloat
+                    if processed_count % 20 == 0:
+                        logger.info(f"[{date_str}] Interest added to cash: ${interest_added:,.2f}")
+                
+            except Exception as e:
+                logger.error(f"Error processing {date_str}: {e}")
+                import traceback
+                traceback.print_exc()
     
     final_value = calculate_portfolio_value(portfolio, previous_prices)
     
     print("=========================================================================")
     print(f"🏆 Selection-Only Benchmark Complete!")
-    print(f"   Days processed: {len(results)}")
+    print(f"   Days processed: {processed_count}")
     print(f"   Initial Value:  ${args.initial_cash:,.2f}")
     print(f"   Final Value:    ${final_value:,.2f}")
     print(f"   Total Return:   {((final_value / args.initial_cash) - 1) * 100:.2f}%")

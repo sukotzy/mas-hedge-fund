@@ -344,15 +344,16 @@ def main():
         else:
             logger.warning("PriceMatrix not available. Falling back to slow mode.")
     
-    with open(input_file, "r") as f:
-        lines = f.readlines()
-        
-    # First pass: collect all unique tickers to initialize Portfolio
+    # First pass: collect all unique tickers to initialize Portfolio without loading the whole file
     all_tickers = set()
-    for line in lines:
-        day_data = json.loads(line)
-        tickers = day_data.get("tickers", [])
-        all_tickers.update([t for t in tickers if t != "CASH"])
+    with open(input_file, "r") as f:
+        for line in f:
+            try:
+                day_data = json.loads(line)
+                tickers = day_data.get("tickers", [])
+                all_tickers.update([t for t in tickers if t != "CASH"])
+            except:
+                continue
         
     portfolio = Portfolio(
         tickers=list(all_tickers),
@@ -361,8 +362,6 @@ def main():
     )
     executor = TradeExecutor()
         
-    results = []
-    
     # Load RF Data
     rf_file = Path("data/processed/daily_risk_free_rates.parquet")
     if rf_file.exists():
@@ -385,38 +384,40 @@ def main():
     previous_bets = {}
     previous_prices = {}
     
-    for line in tqdm(lines):
-        day_data = json.loads(line)
-        try:
-            date_str = day_data.get('date')
-            rf_rate = get_dynamic_rf_rate(date_str, rf_df)
-            
-            # Pure functional optimization pass over state
-            res = process_day(day_data, rf_rate=rf_rate, 
-                              portfolio=portfolio,
-                              executor=executor,
-                              previous_consensus=previous_consensus,
-                              agent_capital=agent_capital,
-                              previous_bets=previous_bets,
-                              previous_prices=previous_prices,
-                              disable_risk_manager=args.disable_risk_manager,
-                              price_matrix=price_matrix) 
-            results.append(res)
-            
-            # Update memory state after each day
-            previous_consensus = res["adjusted_consensus"].copy()
-            
-            # Apply daily interest to cash balance
-            interest_added = portfolio.add_cash_interest(rf_rate)
-            if interest_added > 0:
-                logger.info(f"[{date_str}] Interest added to cash: ${interest_added:,.2f} (@ daily rate {rf_rate:.6f})")
-            
-        except Exception as e:
-            logger.error(f"Error processing {day_data.get('date')}: {e}")
-            
-    with open(output_file, "w") as f:
-        for r in results:
-            f.write(json.dumps(r) + "\n")
+    # Open output file for immediate writing (Streaming Mode)
+    with open(output_file, "w") as out_f:
+        with open(input_file, "r") as in_f:
+            for line in tqdm(in_f, desc="Backtesting"):
+                try:
+                    day_data = json.loads(line)
+                    date_str = day_data.get('date')
+                    rf_rate = get_dynamic_rf_rate(date_str, rf_df)
+                    
+                    # Pure functional optimization pass over state
+                    res = process_day(day_data, rf_rate=rf_rate, 
+                                      portfolio=portfolio,
+                                      executor=executor,
+                                      previous_consensus=previous_consensus,
+                                      agent_capital=agent_capital,
+                                      previous_bets=previous_bets,
+                                      previous_prices=previous_prices,
+                                      disable_risk_manager=args.disable_risk_manager,
+                                      price_matrix=price_matrix) 
+                    
+                    # Write result IMMEDIATELY to prevent memory accumulation (OOM fix)
+                    out_f.write(json.dumps(res) + "\n")
+                    out_f.flush() # Ensure it's written in case of crash later
+                    
+                    # Update memory state after each day
+                    previous_consensus = res["adjusted_consensus"].copy()
+                    
+                    # Apply daily interest to cash balance
+                    interest_added = portfolio.add_cash_interest(rf_rate)
+                    if interest_added > 0 and args.fast is False: # Limit logs in fast mode
+                        logger.info(f"[{date_str}] Interest added to cash: ${interest_added:,.2f}")
+                    
+                except Exception as e:
+                    logger.error(f"Error processing a day: {e}")
             
     logger.info(f"Optimization complete. Final Portfolio Value: ${calculate_portfolio_value(portfolio, previous_prices):.2f}")
 
