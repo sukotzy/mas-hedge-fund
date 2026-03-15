@@ -406,6 +406,11 @@ def main():
             # Update memory state after each day
             previous_consensus = res["adjusted_consensus"].copy()
             
+            # Apply daily interest to cash balance
+            interest_added = portfolio.add_cash_interest(rf_rate)
+            if interest_added > 0:
+                logger.info(f"[{date_str}] Interest added to cash: ${interest_added:,.2f} (@ daily rate {rf_rate:.6f})")
+            
         except Exception as e:
             logger.error(f"Error processing {day_data.get('date')}: {e}")
             

@@ -190,3 +190,18 @@ class Portfolio:
             position["short_margin_used"] = 0.0
         return quantity
 
+    def add_cash_interest(self, daily_rate: float) -> float:
+        """Add interest to the cash balance based on the daily risk-free rate.
+        
+        Args:
+            daily_rate: The daily interest rate (e.g., 0.0001 for 0.01%).
+            
+        Returns:
+            The amount of interest added.
+        """
+        if daily_rate <= 0:
+            return 0.0
+        interest = self._portfolio["cash"] * daily_rate
+        self._portfolio["cash"] += interest
+        return interest
+

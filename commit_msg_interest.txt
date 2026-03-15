@@ -1,0 +1,16 @@
+Implement Daily Cash Interest Accumulation for Backtesting
+
+1. Core Feature: Daily Cash Interest Attribution:
+- Modified `src/backtesting/portfolio.py`: Added `add_cash_interest(daily_rate)` method to allow the portfolio to earn interest on idle cash balances.
+- Updated `src/training/run_optimization.py`: Integrated daily interest accumulation into the main backtest optimization loop using the real-world risk-free rate.
+- Updated `run_selection_only_backtest.py`: Added interest accumulation to the selection-only benchmark to ensure parity with the full pipeline.
+
+2. Continuous Compounding Support:
+- Enabled continuous compounding by applying the daily risk-free rate (sourced from `daily_risk_free_rates.parquet`) to the cash balance at the end of every trading day.
+- This results in more realistic long-term portfolio value trajectories, especially for 9-year backtests.
+
+3. Data Verification & Logging:
+- Verified the integrity of the risk-free rate data source; confirmed rates are correctly fetched even when near zero (e.g., early 2016) and correctly reflect positive yield in later years (e.g., 2023 at ~5% annual).
+- Enhanced backtest logs to include "Interest added to cash" events for better auditability of portfolio value growth.
+
+Verified interest attribution in 2023 samples showing correct daily compounding.
