@@ -5,7 +5,12 @@ import os
 from pathlib import Path
 from tqdm import tqdm
 from datetime import datetime
-import concurrent.futures
+import sys
+from pathlib import Path
+
+# Fix python path: Ensure project root is in sys.path
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../..')))
+
 from dotenv import load_dotenv
 
 # Load Env Vars

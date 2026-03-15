@@ -5,6 +5,11 @@ import logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
+from pathlib import Path
+
+# 获取项目根目录 (假设当前脚本之后会被移动到 model_strategy_selection/)
+PROJECT_ROOT = Path(__file__).resolve().parent.parent
+
 STRESS_TESTS = {
     "covid_crash": {
         "start": "2020-02-20",
@@ -21,12 +26,12 @@ STRESS_TESTS = {
 }
 
 SCRIPTS = [
-    ("qwen", "src/training/run_qwen_experiment.py"),
-    ("deepseek", "src/training/run_deepseek_experiment.py")
+    ("qwen", str(PROJECT_ROOT / "src/training/run_qwen_experiment.py")),
+    ("deepseek", str(PROJECT_ROOT / "src/training/run_deepseek_experiment.py"))
 ]
 
 EXPERIMENTS_TO_RUN = "no_hint_wealth,with_hint_wealth"
-PYTHON_BIN = r".\hf\Scripts\python.exe"
+PYTHON_BIN = str(PROJECT_ROOT / "hf/Scripts/python.exe")
 
 def main():
     logger.info("Starting Stress Tests Suite...")

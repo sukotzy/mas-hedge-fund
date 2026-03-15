@@ -28,6 +28,13 @@ from src.backtesting.portfolio import Portfolio
 from src.backtesting.trader import TradeExecutor
 from src.backtesting.valuation import calculate_portfolio_value
 
+# Optional fast mode
+try:
+    from src.utils.price_matrix import PriceMatrix, calculate_risk_limits_fast
+except ImportError:
+    PriceMatrix = None
+    calculate_risk_limits_fast = None
+
 # Configure Logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
@@ -94,7 +101,7 @@ def get_dynamic_rf_rate(date_str: str, rf_df: pd.DataFrame) -> float:
     return 0.05 / 252 # Fallback
 
 
-def process_day(day_data: dict, rf_rate: float, portfolio: Portfolio, executor: TradeExecutor, previous_consensus: dict, agent_capital: dict, previous_bets: dict, previous_prices: dict, disable_risk_manager: bool = False):
+def process_day(day_data: dict, rf_rate: float, portfolio: Portfolio, executor: TradeExecutor, previous_consensus: dict, agent_capital: dict, previous_bets: dict, previous_prices: dict, disable_risk_manager: bool = False, price_matrix=None):
     date_str = day_data["date"]
     tickers = day_data["tickers"]
     rm_tickers = [t for t in tickers if t != "CASH"]
@@ -110,22 +117,32 @@ def process_day(day_data: dict, rf_rate: float, portfolio: Portfolio, executor: 
     dt_start = dt_end - pd.Timedelta(days=15)
     
     current_prices = {}
-    for t in active_tickers:
-        try:
-            df = get_price_data(t, dt_start.strftime("%Y-%m-%d"), date_str)
-            prices_history[t] = df
-            if not df.empty and "close" in df.columns:
-                valid_closes = df["close"].dropna()
-                if not valid_closes.empty:
-                    current_prices[t] = float(valid_closes.iloc[-1])
+    if price_matrix is not None:
+        # FAST PATH: Use pre-loaded PriceMatrix for O(1) lookups
+        for t in active_tickers:
+            price = price_matrix.get_close(t, date_str)
+            current_prices[t] = price if price > 0 else previous_prices.get(t, 0.0)
+            prices_history[t] = price_matrix.get_price_history_df(
+                t, dt_start.strftime("%Y-%m-%d"), date_str
+            )
+    else:
+        # SLOW PATH: Original per-ticker API calls
+        for t in active_tickers:
+            try:
+                df = get_price_data(t, dt_start.strftime("%Y-%m-%d"), date_str)
+                prices_history[t] = df
+                if not df.empty and "close" in df.columns:
+                    valid_closes = df["close"].dropna()
+                    if not valid_closes.empty:
+                        current_prices[t] = float(valid_closes.iloc[-1])
+                    else:
+                        current_prices[t] = previous_prices.get(t, 0.0)
                 else:
                     current_prices[t] = previous_prices.get(t, 0.0)
-            else:
+            except Exception as e:
+                logger.warning(f"Failed to fetch price data for {t} from {dt_start.strftime('%Y-%m-%d')} to {date_str}: {e}")
+                prices_history[t] = pd.DataFrame()
                 current_prices[t] = previous_prices.get(t, 0.0)
-        except Exception as e:
-            logger.warning(f"Failed to fetch price data for {t} from {dt_start.strftime('%Y-%m-%d')} to {date_str}: {e}")
-            prices_history[t] = pd.DataFrame()
-            current_prices[t] = previous_prices.get(t, 0.0)
 
     # 1.1 Settle Yesterday's Bets (Zero-Sum Settlement)
     if previous_bets and previous_prices:
@@ -180,7 +197,15 @@ def process_day(day_data: dict, rf_rate: float, portfolio: Portfolio, executor: 
     current_portfolio_value = calculate_portfolio_value(portfolio, current_prices)
     
     # 4. Get Risk Limits dynamically scaled to current value
-    risk_limits, rm_prices = get_risk_limits(date_str, list(active_tickers), portfolio, current_portfolio_value, disable_risk_manager)
+    if price_matrix is not None and calculate_risk_limits_fast is not None:
+        # FAST PATH: Inlined risk calculations using PriceMatrix
+        risk_limits, rm_prices = calculate_risk_limits_fast(
+            date_str, list(active_tickers), price_matrix,
+            portfolio, current_portfolio_value, disable_risk_manager
+        )
+    else:
+        # SLOW PATH: Original risk manager agent
+        risk_limits, rm_prices = get_risk_limits(date_str, list(active_tickers), portfolio, current_portfolio_value, disable_risk_manager)
     
     # We will use the risk manager's provided prices primarily, but fallback to current_prices if needed
     for t in active_tickers:
@@ -299,6 +324,7 @@ def main():
     parser.add_argument("--initial-cash", type=float, default=100000.0)
     parser.add_argument("--margin-requirement", type=float, default=0.5)
     parser.add_argument("--disable-risk-manager", action="store_true", help="Disable Risk Manager and allow full allocations")
+    parser.add_argument("--fast", action="store_true", help="Use pre-loaded PriceMatrix for O(1) lookups (much faster for long backtests)")
     args = parser.parse_args()
 
     input_file = Path(args.input_file)
@@ -309,6 +335,14 @@ def main():
         return
         
     logger.info(f"Processing optimization on {input_file}")
+    
+    # Initialize PriceMatrix if --fast mode is enabled
+    price_matrix = None
+    if args.fast:
+        if PriceMatrix is not None:
+            price_matrix = PriceMatrix()
+        else:
+            logger.warning("PriceMatrix not available. Falling back to slow mode.")
     
     with open(input_file, "r") as f:
         lines = f.readlines()
@@ -365,7 +399,8 @@ def main():
                               agent_capital=agent_capital,
                               previous_bets=previous_bets,
                               previous_prices=previous_prices,
-                              disable_risk_manager=args.disable_risk_manager) 
+                              disable_risk_manager=args.disable_risk_manager,
+                              price_matrix=price_matrix) 
             results.append(res)
             
             # Update memory state after each day
