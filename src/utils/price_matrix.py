@@ -65,7 +65,7 @@ class PriceMatrix:
         return 0.0
     
     def get_price_history_df(self, ticker: str, start_date: str, end_date: str) -> pd.DataFrame:
-        """Get price history as a DataFrame with 'close' column. Fast slice from matrix."""
+        """Get price history as a DataFrame with 'close' column. Fast slice from matrix using searchsorted."""
         permno = self.get_permno(ticker)
         if permno is None or permno not in self._close_matrix.columns:
             return pd.DataFrame()
@@ -73,8 +73,15 @@ class PriceMatrix:
         ts_start = pd.Timestamp(start_date)
         ts_end = pd.Timestamp(end_date)
         
-        mask = (self._close_matrix.index >= ts_start) & (self._close_matrix.index <= ts_end)
-        closes = self._close_matrix.loc[mask, permno].dropna()
+        # O(log N) fast integer positional lookup instead of O(N) boolean mask
+        idx_start = np.searchsorted(self._dates, np.datetime64(ts_start), side='left')
+        idx_end = np.searchsorted(self._dates, np.datetime64(ts_end), side='right')
+        
+        if idx_start >= idx_end:
+            return pd.DataFrame()
+            
+        # Fast positional slice using .iloc
+        closes = self._close_matrix.iloc[idx_start:idx_end, self._close_matrix.columns.get_loc(permno)].dropna()
         
         if closes.empty:
             return pd.DataFrame()
@@ -82,7 +89,7 @@ class PriceMatrix:
         return pd.DataFrame({'close': closes})
     
     def get_returns_series(self, ticker: str, start_date: str, end_date: str) -> pd.Series:
-        """Get daily returns for a ticker in a date range."""
+        """Get daily returns for a ticker in a date range using fast searchsorted slice."""
         permno = self.get_permno(ticker)
         if permno is None or permno not in self._close_matrix.columns:
             return pd.Series(dtype=float)
@@ -90,8 +97,14 @@ class PriceMatrix:
         ts_start = pd.Timestamp(start_date)
         ts_end = pd.Timestamp(end_date)
         
-        mask = (self._close_matrix.index >= ts_start) & (self._close_matrix.index <= ts_end)
-        closes = self._close_matrix.loc[mask, permno].dropna()
+        # O(log N) fast integer positional lookup
+        idx_start = np.searchsorted(self._dates, np.datetime64(ts_start), side='left')
+        idx_end = np.searchsorted(self._dates, np.datetime64(ts_end), side='right')
+        
+        if idx_start >= idx_end:
+            return pd.Series(dtype=float)
+            
+        closes = self._close_matrix.iloc[idx_start:idx_end, self._close_matrix.columns.get_loc(permno)].dropna()
         
         if len(closes) < 2:
             return pd.Series(dtype=float)

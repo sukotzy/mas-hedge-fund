@@ -121,34 +121,50 @@ def settle_bets(agent_capital, previous_bets, current_prices, previous_prices):
     # 2. Calculate the average return (Benchmark)
     avg_return = sum(agent_returns.values()) / len(agent_returns)
     
-    # 3. Alpha-based Zero-Sum Settlement
+    # 3. Alpha-based Zero-Sum Settlement (Strict Subsidy Pool)
     # Determines how fast capital moves between agents. 
-    # Can be tuned later based on volatility or desired convergence speed.
     TRANSFER_RATE = 1.0 
     
+    # 3.1 Calculate Taxes (Losers pay into the pool)
+    subsidy_pool = 0.0
+    agent_alphas = {}
     for agent_name, ret in agent_returns.items():
-        # Alpha is the excess return above the average (can be negative)
         alpha = ret - avg_return
+        agent_alphas[agent_name] = alpha
         
+        if alpha < 0:
+            caps = agent_capital[agent_name]
+            total_cap = caps.get("internal_capital", 0) + caps.get("external_capital", 0)
+            
+            # Loser pays tax proportional to their size and underperformance
+            tax_amount = total_cap * abs(alpha) * TRANSFER_RATE
+            subsidy_pool += tax_amount
+            
+            # Deduct from loser
+            r = agent_ratios[agent_name]
+            caps["external_capital"] = max(0, caps.get("external_capital", 0) - tax_amount * r)
+            caps["internal_capital"] = max(0, caps.get("internal_capital", 0) - tax_amount * (1 - r))
+    
+    # 3.2 Distribute Pool (Winners take from the pool proportionally)
+    total_positive_alpha = sum(alpha for alpha in agent_alphas.values() if alpha > 0)
+    
+    for agent_name, alpha in agent_alphas.items():
         caps = agent_capital[agent_name]
-        total_cap = caps.get("internal_capital", 0) + caps.get("external_capital", 0)
         
-        # The total dollar amount to transfer (win or lose from/to the pool)
-        transfer_amount = total_cap * alpha * TRANSFER_RATE
-        
-        # Attribute the transfer proportionally to Internal and External tranches
-        r = agent_ratios[agent_name]
-        transfer_ex = transfer_amount * r
-        transfer_in = transfer_amount * (1 - r)
-        
-        # Apply the transfer
-        caps["external_capital"] = max(0, caps.get("external_capital", 0) + transfer_ex)
-        caps["internal_capital"] = max(0, caps.get("internal_capital", 0) + transfer_in)
-        
+        if alpha > 0 and total_positive_alpha > 0:
+            # Winner's share of the pool
+            share_pct = alpha / total_positive_alpha
+            reward_amount = subsidy_pool * share_pct
+            
+            # Add to winner
+            r = agent_ratios[agent_name]
+            caps["external_capital"] += reward_amount * r
+            caps["internal_capital"] += reward_amount * (1 - r)
+            
         # Sync legacy field
         caps["allocated_capital"] = caps["external_capital"]
         
         # Update ROI history with raw return (not alpha)
-        caps.setdefault("roi_history", []).append(ret)
+        caps.setdefault("roi_history", []).append(agent_returns[agent_name])
 
     return agent_capital
