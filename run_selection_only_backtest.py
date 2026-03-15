@@ -541,7 +541,7 @@ def main():
                 
                 # Write IMMEDIATELY to prevents results list from growing too large
                 out_f.write(json.dumps(res) + "\n")
-                out_f.flush()
+                # REMOVED: out_f.flush() - This was causing a massive I/O bottleneck
                 processed_count += 1
                 
                 # Update memory for next day

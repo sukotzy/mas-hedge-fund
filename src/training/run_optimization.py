@@ -406,7 +406,7 @@ def main():
                     
                     # Write result IMMEDIATELY to prevent memory accumulation (OOM fix)
                     out_f.write(json.dumps(res) + "\n")
-                    out_f.flush() # Ensure it's written in case of crash later
+                    # REMOVED: out_f.flush() - This was causing a massive I/O bottleneck by forcing a sync disk write every line.
                     
                     # Update memory state after each day
                     previous_consensus = res["adjusted_consensus"].copy()
