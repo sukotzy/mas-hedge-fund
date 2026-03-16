@@ -252,7 +252,7 @@ def calculate_optimal_portfolio(
         current_prices=active_prices,
         portfolio_value=initial_capital,
         risk_limits=active_risk_limits,
-        lambda_penalty=0.005,
+        lambda_penalty=0.05,
         use_risk_manager=use_risk_manager
     )
 
