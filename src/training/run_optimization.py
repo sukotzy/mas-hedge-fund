@@ -169,9 +169,15 @@ def process_day(day_data: dict, rf_rate: float, portfolio: Portfolio, executor: 
         decision = day_data[agent]
         
         dynamic_cap = agent_capital[agent].get("external_capital", 0) + agent_capital[agent].get("internal_capital", 0)
+        
+        # Extract today's ROI (if available from settle_bets)
+        history = agent_capital[agent].get("roi_history", [])
+        daily_roi = history[-1] if history else 0.0
+        
         logger.info(f"[{date_str}] Allocator {agent.upper()} Capital: ${dynamic_cap:,.2f} "
                     f"(External: ${agent_capital[agent].get('external_capital', 0):,.2f}, "
-                    f"Internal: ${agent_capital[agent].get('internal_capital', 0):,.2f})")
+                    f"Internal: ${agent_capital[agent].get('internal_capital', 0):,.2f}) "
+                    f"[Daily ROI: {daily_roi*100:.4f}%]")
         
         allocations = decision.get("allocations", [])
         for alloc in allocations:
