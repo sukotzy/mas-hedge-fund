@@ -18,6 +18,8 @@ def main():
     parser.add_argument("--margin-requirement", type=float, default=0.25, help="Margin requirement")
     parser.add_argument("--fast", action="store_true", help="Use pre-loaded PriceMatrix for fast O(1) lookups")
     parser.add_argument("--agent", type=str, choices=["fundamental", "technical", "valuation", "sentiment"], default=None, help="Run single agent ablation study for a specific agent")
+    parser.add_argument("--disable-risk-manager", action="store_true", help="Disable Risk Manager and allow full allocations")
+    parser.add_argument("--turnover-penalty", type=float, default=0.05, help="L1 penalty for turnover in QP optimizer")
     
     args = parser.parse_args()
 
@@ -107,6 +109,10 @@ def main():
         
         if args.fast:
             cmd.append("--fast")
+        if args.disable_risk_manager:
+            cmd.append("--disable-risk-manager")
+        if args.turnover_penalty != 0.05:
+            cmd.extend(["--turnover-penalty", str(args.turnover_penalty)])
         
         try:
             subprocess.run(cmd, check=True)

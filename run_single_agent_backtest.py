@@ -61,7 +61,7 @@ def get_dynamic_rf_rate(date_str: str, rf_df: pd.DataFrame) -> float:
                 return float(past_rates.iloc[-1]['risk_free_rate'])
     return 0.05 / 252
 
-def process_day(day_data: dict, rf_rate: float, portfolio: Portfolio, executor: TradeExecutor, previous_consensus: dict, previous_prices: dict, agent_name: str, disable_risk_manager: bool = False, price_matrix=None):
+def process_day(day_data: dict, rf_rate: float, portfolio: Portfolio, executor: TradeExecutor, previous_consensus: dict, previous_prices: dict, agent_name: str, disable_risk_manager: bool = False, turnover_penalty: float = 0.05, price_matrix=None):
     date_str = day_data["date"]
     tickers = day_data["tickers"]
     rm_tickers = [t for t in tickers if t != "CASH"]
@@ -165,7 +165,8 @@ def process_day(day_data: dict, rf_rate: float, portfolio: Portfolio, executor: 
         risk_limits=risk_limits,
         initial_capital=current_portfolio_value,
         risk_free_rate=rf_rate,
-        use_risk_manager=not disable_risk_manager
+        use_risk_manager=not disable_risk_manager,
+        turnover_penalty=turnover_penalty
     )
     
     logger.info(f"[{date_str}] Target Shares:")
@@ -244,6 +245,7 @@ def main():
     parser.add_argument("--margin-requirement", type=float, default=0.5)
     parser.add_argument("--disable-risk-manager", action="store_true", help="Disable Risk Manager")
     parser.add_argument("--fast", action="store_true", help="Use pre-loaded PriceMatrix")
+    parser.add_argument("--turnover-penalty", type=float, default=0.05, help="L1 penalty for turnover in QP optimizer")
     args = parser.parse_args()
 
     input_file = Path(args.input_file)
@@ -307,6 +309,7 @@ def main():
                                       previous_prices=previous_prices,
                                       agent_name=args.agent,
                                       disable_risk_manager=args.disable_risk_manager,
+                                      turnover_penalty=args.turnover_penalty,
                                       price_matrix=price_matrix) 
                     
                     out_f.write(json.dumps(res) + "\n")
