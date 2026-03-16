@@ -182,22 +182,16 @@ def calculate_optimal_portfolio(
                         
                         # Determine tier
                         # Tier 1: Absolute Defense (Hard Cutoff)
-                        cond_A_long = holdings > 0 and price_delta_1d <= -0.08
-                        cond_A_short = holdings < 0 and price_delta_1d >= 0.08
+                        cond_A_long = holdings > 0 and price_delta_1d <= -0.20
+                        cond_A_short = holdings < 0 and price_delta_1d >= 0.20
                         
-                        # Crosses MA5 for 2 consecutive days adversely
-                        # Adverse: Long -> price < MA5; Short -> price > MA5
-                        prev_ma5 = np.mean(closes[-6:-1]) # ma5 of t-6 to t-2
-                        cond_B_long = holdings > 0 and (latest_close < ma5) and (prev_close_1 < prev_ma5)
-                        cond_B_short = holdings < 0 and (latest_close > ma5) and (prev_close_1 > prev_ma5)
-                        
-                        if cond_A_long or cond_A_short or cond_B_long or cond_B_short:
+                        if cond_A_long or cond_A_short:
                             decay_factor = 0.0
                         else:
                             # Tiers 2, 3, 4
                             if holdings * price_delta_3d > 0:
                                 # Tier 2: Tailwind Soft Landing
-                                decay_factor = 0.8
+                                decay_factor = 0.98
                             elif holdings * price_delta_3d < 0:
                                 # It's a headwind
                                 is_long = holdings > 0
@@ -211,13 +205,13 @@ def calculate_optimal_portfolio(
                                     
                                 if accel:
                                     # Tier 3: Headwind Acceleration
-                                    decay_factor = 0.2
+                                    decay_factor = 0.70
                                 else:
                                     # Tier 4: Headwind Deceleration
-                                    decay_factor = 0.5
+                                    decay_factor = 0.90
                             else:
                                 # price_delta_3d == 0 or holdings == 0
-                                decay_factor = 0.5
+                                decay_factor = 0.90
                 else:
                     # Incomplete price history -> conservative decay
                     decay_factor = 0.0
