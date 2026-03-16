@@ -257,7 +257,8 @@ def process_day(day_data: dict, rf_rate: float, portfolio: Portfolio, executor: 
         initial_capital=current_portfolio_value,
         risk_free_rate=rf_rate,
         use_risk_manager=not disable_risk_manager,
-        turnover_penalty=turnover_penalty
+        turnover_penalty=turnover_penalty,
+        decay_mode=decay_mode
     )
     
     logger.info(f"[{date_str}] Optimizer Output (Target Shares to Hold):")
@@ -351,6 +352,7 @@ def main():
     parser.add_argument("--disable-risk-manager", action="store_true", help="Disable Risk Manager and allow full allocations")
     parser.add_argument("--fast", action="store_true", help="Use pre-loaded PriceMatrix for O(1) lookups (much faster for long backtests)")
     parser.add_argument("--turnover-penalty", type=float, default=0.05, help="L1 penalty for turnover in QP optimizer")
+    parser.add_argument("--decay-mode", type=str, choices=["none", "soft", "harsh"], default="harsh", help="Configure the kinematic decay speed for legacy positions")
     args = parser.parse_args()
 
     input_file = Path(args.input_file)
@@ -429,6 +431,7 @@ def main():
                                       previous_prices=previous_prices,
                                       disable_risk_manager=args.disable_risk_manager,
                                       turnover_penalty=args.turnover_penalty,
+                                      decay_mode=args.decay_mode,
                                       price_matrix=price_matrix) 
                     
                     # Write result IMMEDIATELY to prevent memory accumulation (OOM fix)

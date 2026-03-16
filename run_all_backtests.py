@@ -20,6 +20,7 @@ def main():
     parser.add_argument("--agent", type=str, choices=["fundamental", "technical", "valuation", "sentiment"], default=None, help="Run single agent ablation study for a specific agent")
     parser.add_argument("--disable-risk-manager", action="store_true", help="Disable Risk Manager and allow full allocations")
     parser.add_argument("--turnover-penalty", type=float, default=0.05, help="L1 penalty for turnover in QP optimizer")
+    parser.add_argument("--decay-mode", type=str, choices=["none", "soft", "harsh"], default="harsh", help="Configure the kinematic decay speed for legacy positions")
     
     args = parser.parse_args()
 
@@ -113,6 +114,8 @@ def main():
             cmd.append("--disable-risk-manager")
         if args.turnover_penalty != 0.05:
             cmd.extend(["--turnover-penalty", str(args.turnover_penalty)])
+        if args.decay_mode != "harsh":
+            cmd.extend(["--decay-mode", args.decay_mode])
         
         try:
             subprocess.run(cmd, check=True)
