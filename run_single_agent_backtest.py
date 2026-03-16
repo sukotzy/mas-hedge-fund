@@ -61,7 +61,7 @@ def get_dynamic_rf_rate(date_str: str, rf_df: pd.DataFrame) -> float:
                 return float(past_rates.iloc[-1]['risk_free_rate'])
     return 0.05 / 252
 
-def process_day(day_data: dict, rf_rate: float, portfolio: Portfolio, executor: TradeExecutor, previous_consensus: dict, previous_prices: dict, agent_name: str, disable_risk_manager: bool = False, turnover_penalty: float = 0.05, price_matrix=None):
+def process_day(day_data: dict, rf_rate: float, portfolio: Portfolio, executor: TradeExecutor, previous_consensus: dict, previous_prices: dict, agent_name: str, disable_risk_manager: bool = False, turnover_penalty: float = 0.05, decay_mode: str = "harsh", price_matrix=None):
     date_str = day_data["date"]
     tickers = day_data["tickers"]
     rm_tickers = [t for t in tickers if t != "CASH"]
