@@ -298,10 +298,19 @@ def process_day(day_data: dict, rf_rate: float, portfolio: Portfolio, executor: 
                          if pos["long"] > 0 or pos["short"] > 0}
                          
     # 9. Update state memory for tomorrow
-    previous_prices.update(current_prices)
+    # CRITICAL MEMORY LEAK FIX:
+    # Do not let previous_prices accumulate thousands of dead tickers over 9 years.
+    # Only cache prices for tickers that are actively in today's pool.
+    previous_prices.clear()
+    for t in active_tickers:
+        previous_prices[t] = current_prices.get(t, 0.0)
+        
     for agent in agent_names:
         if agent in day_data:
             previous_bets[agent] = day_data[agent]
+            
+    # Prune adjusted consensus as well
+    pruned_adjusted_consensus = {t: v for t, v in adjusted_consensus.items() if t in active_tickers}
     
     return {
         "date": date_str,
@@ -309,7 +318,7 @@ def process_day(day_data: dict, rf_rate: float, portfolio: Portfolio, executor: 
         "executed_trades": executed_trades,
         "updated_holdings": updated_positions,
         "consensus": consensus_values,
-        "adjusted_consensus": adjusted_consensus,
+        "adjusted_consensus": pruned_adjusted_consensus,
         "prices": rm_prices,
         "risk_limits": risk_limits,
         "optimal_shares": optimal_shares,
