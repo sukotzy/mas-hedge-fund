@@ -227,20 +227,37 @@ def calculate_optimal_portfolio(
                 # No signal and holding is 0
                 adjusted_consensus[ticker] = 0.0
 
-    # Clean up small residuals
+    # Clean up small residuals and separate active vs zombie tickers
+    active_tickers = []
+    zero_tickers = []
     for t in list(adjusted_consensus.keys()):
         if abs(adjusted_consensus[t]) < 1e-6:
             adjusted_consensus[t] = 0.0
+            zero_tickers.append(t)
+        else:
+            active_tickers.append(t)
 
-    # Part C: QP Optimization
-    optimal_shares = solve_optimization_qp(
-        adjusted_consensus=adjusted_consensus,
-        previous_holdings=previous_holdings,
-        current_prices=current_prices,
+    # Filter inputs for QP to reduce dimensionality drastically (O(N^3) optimization)
+    active_consensus = {t: adjusted_consensus[t] for t in active_tickers}
+    active_prev_holdings = {t: previous_holdings.get(t, 0.0) for t in active_tickers}
+    active_prices = {t: current_prices.get(t, 0.0) for t in active_tickers if t in current_prices}
+    if "CASH" in current_prices and "CASH" not in active_prices:
+        active_prices["CASH"] = current_prices["CASH"]
+    active_risk_limits = {t: risk_limits.get(t, initial_capital) for t in active_tickers}
+
+    # Part C: QP Optimization on Active Subset
+    optimal_shares_active = solve_optimization_qp(
+        adjusted_consensus=active_consensus,
+        previous_holdings=active_prev_holdings,
+        current_prices=active_prices,
         portfolio_value=initial_capital,
-        risk_limits=risk_limits,
+        risk_limits=active_risk_limits,
         lambda_penalty=0.05,
         use_risk_manager=use_risk_manager
     )
+
+    # Merge results: Zero-consensus tickers are implicitly liquidated (target=0.0)
+    optimal_shares = {t: 0.0 for t in zero_tickers}
+    optimal_shares.update(optimal_shares_active)
 
     return optimal_shares, adjusted_consensus
