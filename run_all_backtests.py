@@ -17,6 +17,7 @@ def main():
     parser.add_argument("--initial-cash", type=float, default=100000.0, help="Initial portfolio cash")
     parser.add_argument("--margin-requirement", type=float, default=0.25, help="Margin requirement")
     parser.add_argument("--fast", action="store_true", help="Use pre-loaded PriceMatrix for fast O(1) lookups")
+    parser.add_argument("--agent", type=str, choices=["fundamental", "technical", "valuation", "sentiment"], default=None, help="Run single agent ablation study for a specific agent")
     
     args = parser.parse_args()
 
@@ -26,6 +27,8 @@ def main():
 
     print("=========================================================================")
     print("🚀 Starting Batch Backtesting Engine (Continuous Compounding Mode) 🚀")
+    if args.agent:
+        print(f"🔬 RUNNING SINGLE-AGENT ABLATION STUDY: {args.agent.upper()} 🔬")
     print("=========================================================================")
 
     # 需要扫描的实验结果根目录
@@ -56,7 +59,12 @@ def main():
         
         # 将路径转换为安全的文件名
         safe_name = str(exp_dir).replace("data\\", "").replace("data/", "").replace("\\", "_").replace("/", "_")
-        output_file = out_dir / f"{safe_name}.jsonl"
+        
+        # 如果是单跑 Agent，在输出文件名加上 agent 前缀
+        if args.agent:
+            output_file = out_dir / f"{safe_name}_{args.agent}.jsonl"
+        else:
+            output_file = out_dir / f"{safe_name}.jsonl"
         
         # 获取该文件夹下所有的 .jsonl 文件，并按字母(时间)顺序排序
         jsonl_files = sorted(Path(exp_dir).glob("*.jsonl"))
@@ -79,13 +87,23 @@ def main():
         python_exe = str(hf_python.resolve()) if hf_python.exists() else sys.executable
         
         # 4. 调用回测引擎
-        cmd = [
-            python_exe, "src/training/run_optimization.py",
-            "--input-file", str(temp_file),
-            "--output-file", str(output_file),
-            "--initial-cash", str(args.initial_cash),
-            "--margin-requirement", str(args.margin_requirement)
-        ]
+        if args.agent:
+            cmd = [
+                python_exe, "run_single_agent_backtest.py",
+                "--agent", args.agent,
+                "--input-file", str(temp_file),
+                "--output-file", str(output_file),
+                "--initial-cash", str(args.initial_cash),
+                "--margin-requirement", str(args.margin_requirement)
+            ]
+        else:
+            cmd = [
+                python_exe, "src/training/run_optimization.py",
+                "--input-file", str(temp_file),
+                "--output-file", str(output_file),
+                "--initial-cash", str(args.initial_cash),
+                "--margin-requirement", str(args.margin_requirement)
+            ]
         
         if args.fast:
             cmd.append("--fast")
