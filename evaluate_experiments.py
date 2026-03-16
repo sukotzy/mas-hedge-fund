@@ -7,7 +7,14 @@ matplotlib.use('Agg')  # 服务器环境使用 Agg
 import matplotlib.pyplot as plt
 import matplotlib.ticker as mtick
 from typing import Dict
-from src.data.loader import get_local_loader
+
+# Optional yfinance for benchmark
+try:
+    import yfinance as yf
+    YFINANCE_AVAILABLE = True
+except ImportError:
+    YFINANCE_AVAILABLE = False
+    print("Warning: yfinance module not found. Run 'pip install yfinance' to plot the S&P 500 benchmark.")
 
 def load_backtest_data(filepath: str) -> pd.Series:
     """读取 JSONL 返回带有日期的 Series"""
@@ -83,7 +90,7 @@ def main():
     parser.add_argument("--inputs", nargs='+', required=True, help="List of backtest .jsonl files")
     parser.add_argument("--labels", nargs='+', required=True, help="List of names for the legends")
     parser.add_argument("--output", default="strategy_comparison.png", help="Output image file")
-    parser.add_argument("--benchmark", default="SPY", help="Local ticker for benchmark (e.g., SPY)")
+    parser.add_argument("--benchmark", default="^GSPC", help="Yahoo Finance ticker for benchmark")
     parser.add_argument("--title", default="AI Hedge Fund Strategy Comparison", help="Main title of the plot")
     args = parser.parse_args()
 
@@ -105,26 +112,25 @@ def main():
     end_date = df_all.index.max()
 
     # 2. 下载并对齐基准指数 (S&P 500)
-    print(f"Loading Benchmark {args.benchmark} from local parquet from {start_date.date()} to {end_date.date()}...")
-    try:
-        loader = get_local_loader("data")
-        bench_df = loader.get_ticker_data(args.benchmark, start_date.strftime("%Y-%m-%d"), end_date.strftime("%Y-%m-%d"))
-        
-        if not bench_df.empty:
-            bench_series = bench_df.set_index('date')['prc']
+    if YFINANCE_AVAILABLE:
+        print(f"Downloading Benchmark {args.benchmark} via yfinance from {start_date.date()} to {end_date.date()}...")
+        try:
+            # 多加一天确保涵盖结束日期
+            bench_data = yf.download(args.benchmark, start=start_date, end=end_date + pd.Timedelta(days=1), progress=False)
+            bench_series = bench_data['Close']
+            if isinstance(bench_series, pd.DataFrame): 
+                bench_series = bench_series.iloc[:, 0]
             
             # 将 Benchmark 重置为与策略相同的初始资金
             initial_capital = df_all.iloc[0, 0] 
-            
-            # 对齐索引（以策略的交易日为准），前向填充缺失值
+            # 对齐索引（以策略的交易日为准）
             bench_aligned = bench_series.reindex(df_all.index).ffill()
-            
             # 归一化并放大
             df_all['S&P 500 (Bench)'] = (bench_aligned / bench_aligned.iloc[0]) * initial_capital
-        else:
-            print(f"Warning: No local data found for benchmark {args.benchmark}")
-    except Exception as e:
-        print(f"Warning: Could not fetch local benchmark. Error: {e}")
+        except Exception as e:
+            print(f"Warning: Could not fetch benchmark {args.benchmark}. Error: {e}")
+    else:
+        print("Skipping Benchmark because yfinance is not installed. Run 'pip install yfinance' to include it.")
 
     # 3. 计算所有指标
     print("Calculating metrics...")
