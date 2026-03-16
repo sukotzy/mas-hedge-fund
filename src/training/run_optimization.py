@@ -110,6 +110,15 @@ def process_day(day_data: dict, rf_rate: float, portfolio: Portfolio, executor: 
     for t, pos in portfolio.get_positions().items():
         if pos["long"] > 0 or pos["short"] > 0:
             active_tickers.add(t)
+            
+    # FIX: Ensure we fetch prices for anything we bet on yesterday, 
+    # otherwise settle_bets will use $0.0 and calculate a -100% ROI!
+    if previous_bets:
+        for agent, bet_data in previous_bets.items():
+            for alloc in bet_data.get("allocations", []):
+                bet_ticker = alloc.get("ticker")
+                if bet_ticker and bet_ticker != "CASH":
+                    active_tickers.add(bet_ticker)
     
     # 1. Fetch 15-day trailing prices for decay logic and get today's prices for settlement
     prices_history = {}
