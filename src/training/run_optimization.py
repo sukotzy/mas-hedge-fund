@@ -101,7 +101,7 @@ def get_dynamic_rf_rate(date_str: str, rf_df: pd.DataFrame) -> float:
     return 0.05 / 252 # Fallback
 
 
-def process_day(day_data: dict, rf_rate: float, portfolio: Portfolio, executor: TradeExecutor, previous_consensus: dict, agent_capital: dict, previous_bets: dict, previous_prices: dict, disable_risk_manager: bool = False, price_matrix=None):
+def process_day(day_data: dict, rf_rate: float, portfolio: Portfolio, executor: TradeExecutor, previous_consensus: dict, agent_capital: dict, previous_bets: dict, previous_prices: dict, disable_risk_manager: bool = False, turnover_penalty: float = 0.05, price_matrix=None):
     date_str = day_data["date"]
     tickers = day_data["tickers"]
     rm_tickers = [t for t in tickers if t != "CASH"]
@@ -256,7 +256,8 @@ def process_day(day_data: dict, rf_rate: float, portfolio: Portfolio, executor: 
         risk_limits=risk_limits,
         initial_capital=current_portfolio_value,
         risk_free_rate=rf_rate,
-        use_risk_manager=not disable_risk_manager
+        use_risk_manager=not disable_risk_manager,
+        turnover_penalty=turnover_penalty
     )
     
     logger.info(f"[{date_str}] Optimizer Output (Target Shares to Hold):")
@@ -349,6 +350,7 @@ def main():
     parser.add_argument("--margin-requirement", type=float, default=0.5)
     parser.add_argument("--disable-risk-manager", action="store_true", help="Disable Risk Manager and allow full allocations")
     parser.add_argument("--fast", action="store_true", help="Use pre-loaded PriceMatrix for O(1) lookups (much faster for long backtests)")
+    parser.add_argument("--turnover-penalty", type=float, default=0.05, help="L1 penalty for turnover in QP optimizer")
     args = parser.parse_args()
 
     input_file = Path(args.input_file)
@@ -426,6 +428,7 @@ def main():
                                       previous_bets=previous_bets,
                                       previous_prices=previous_prices,
                                       disable_risk_manager=args.disable_risk_manager,
+                                      turnover_penalty=args.turnover_penalty,
                                       price_matrix=price_matrix) 
                     
                     # Write result IMMEDIATELY to prevent memory accumulation (OOM fix)

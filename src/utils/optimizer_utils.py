@@ -100,7 +100,8 @@ def calculate_optimal_portfolio(
     risk_limits: dict[str, float],
     initial_capital: float,
     risk_free_rate: float,
-    use_risk_manager: bool = True
+    use_risk_manager: bool = True,
+    turnover_penalty: float = 0.05
 ) -> tuple[dict[str, float], dict[str, float]]:
     """
     Stateful, Four-Tier Kinematic Risk Model optimizer.
@@ -117,6 +118,8 @@ def calculate_optimal_portfolio(
     - risk_limits: dict of max USD risk allowed per ticker.
     - initial_capital: total fund wealth or starting capital.
     - risk_free_rate: risk free rate for the period.
+    - use_risk_manager: whether to use the risk manager for limits.
+    - turnover_penalty: L1 regularization penalty for trading turnover.
     
     Returns:
     - optimal_shares: dict of target net shares for each ticker and CASH.
@@ -246,7 +249,7 @@ def calculate_optimal_portfolio(
         current_prices=active_prices,
         portfolio_value=initial_capital,
         risk_limits=active_risk_limits,
-        lambda_penalty=0.05,
+        lambda_penalty=turnover_penalty,
         use_risk_manager=use_risk_manager
     )
 
