@@ -55,7 +55,7 @@ def main():
     parser = argparse.ArgumentParser(description="Plot Agent Capital Trajectories and ROI from Logs")
     parser.add_argument("--log", required=True, help="Path to the backtest log file (e.g., nohup.out or log.txt)")
     parser.add_argument("--output", default="agent_capital_trajectory.png", help="Output image file")
-    parser.add_argument("--window", type=int, default=63, help="Rolling window size in days for ROI smoothing (default: 63 days / 1 quarter)")
+    parser.add_argument("--window", type=int, default=21, help="Rolling window size in days for ROI smoothing (default: 21 days / 1 month)")
     args = parser.parse_args()
     
     print(f"Parsing log file: {args.log}")
@@ -84,38 +84,48 @@ def main():
         'SENTIMENT': '#d62728'     # red
     }
     
-    # --- PANEL 1: Capital Trajectories ---
-    for col in df_cap.columns:
+    # --- PANEL 1: Capital Share (%) ---
+    # Convert absolute capital to relative percentage of the total pool
+    df_cap_total = df_cap.sum(axis=1)
+    df_cap_pct = df_cap.div(df_cap_total, axis=0)
+    
+    for col in df_cap_pct.columns:
         c = colors.get(col, None)
-        ax1.plot(df_cap.index, df_cap[col], label=col, color=c, linewidth=2)
+        ax1.plot(df_cap_pct.index, df_cap_pct[col], label=col, color=c, linewidth=2.5)
         
-    ax1.set_title('Meta-Manager Allocation: Agent Capital Trajectory (Zero-Sum Settlement)', fontsize=16, fontweight='bold', pad=15)
-    ax1.set_ylabel('Total Capital ($)', fontsize=12)
-    ax1.yaxis.set_major_formatter(mtick.StrMethodFormatter('${x:,.0f}'))
+    ax1.set_title('Meta-Manager Allocation: Agent Capital Dominance (%)', fontsize=16, fontweight='bold', pad=15)
+    ax1.set_ylabel('Capital Share (%)', fontsize=12)
+    ax1.yaxis.set_major_formatter(mtick.PercentFormatter(1.0))
     ax1.legend(loc='upper left', fontsize=11, framealpha=0.9)
     ax1.grid(True, linestyle='--', alpha=0.6)
     
-    # Add a horizontal line at Initial Capital
-    initial_cap = df_cap.iloc[0].mean() # usually 100k or 50k
-    ax1.axhline(y=initial_cap, color='gray', linestyle=':', alpha=0.8, label=f'Initial Capital (${initial_cap:,.0f})')
+    # Add a horizontal line at 25% (Equal Weight Baseline for 4 agents)
+    ax1.axhline(y=0.25, color='gray', linestyle=':', alpha=0.8, label='Equal Weight (25%)')
     
-    # --- PANEL 2: Smoothed ROI (if available) ---
+    # --- PANEL 2: Smoothed Relative Performance (Alpha) ---
+    # To detect capital inertia, we want to see who is *beating the average* over the short term
     if has_roi:
-        # Calculate Rolling Average ROI (annualized for readability)
-        rolling_roi = df_roi.rolling(window=args.window, min_periods=1).mean() * 252
+        # Calculate daily average ROI across all agents
+        daily_avg_roi = df_roi.mean(axis=1)
         
-        for col in rolling_roi.columns:
+        # Calculate daily Alpha (Agent return - Average return)
+        df_alpha = df_roi.sub(daily_avg_roi, axis=0)
+        
+        # Smooth the Alpha over the short-term window
+        rolling_alpha = df_alpha.rolling(window=args.window, min_periods=1).mean() * 252 # Annualized gap
+        
+        for col in rolling_alpha.columns:
             c = colors.get(col, None)
-            ax2.plot(rolling_roi.index, rolling_roi[col], label=col, color=c, linewidth=1.5, alpha=0.8)
+            ax2.plot(rolling_alpha.index, rolling_alpha[col], label=col, color=c, linewidth=1.5, alpha=0.8)
             
-        ax2.set_title(f'Agent Performance: {args.window}-Day Rolling Annualized ROI', fontsize=14, fontweight='bold', pad=10)
-        ax2.set_ylabel('Annualized Return', fontsize=12)
-        ax2.yaxis.set_major_formatter(mtick.PercentFormatter(1.0)) # Format as percentage
-        ax2.axhline(y=0, color='black', linestyle='-', alpha=0.5, linewidth=1)
-        ax2.grid(True, linestyle='--', alpha=0.6)
+        ax2.set_title(f'Short-Term Performance Edge: {args.window}-Day Rolling Annualized Alpha vs Peers', fontsize=14, fontweight='bold', pad=10)
+        ax2.set_ylabel('Annualized Alpha Gap', fontsize=12)
+        ax2.yaxis.set_major_formatter(mtick.PercentFormatter(1.0)) 
         
-        # We don't need a legend twice if colors match, but it's good for clarity
-        ax2.legend(loc='upper left', fontsize=10, framealpha=0.9, ncol=4)
+        # Add 0 line (Average Performance)
+        ax2.axhline(y=0, color='black', linestyle='-', alpha=0.8, linewidth=1.5, label='Average Peer Performance')
+        ax2.grid(True, linestyle='--', alpha=0.6)
+        ax2.legend(loc='upper left', fontsize=10, framealpha=0.9, ncol=5)
 
     plt.tight_layout()
     plt.savefig(args.output, dpi=300, bbox_inches='tight')
