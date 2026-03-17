@@ -239,15 +239,22 @@ def calculate_optimal_portfolio(
                 # No signal and holding is 0
                 adjusted_consensus[ticker] = 0.0
 
-    # Clean up small residuals and separate active vs zombie tickers
+    # Clean up residuals and apply Top-K Truncation (Max 50 positions)
+    MAX_POSITIONS = 50
     active_tickers = []
     zero_tickers = []
-    for t in list(adjusted_consensus.keys()):
-        if abs(adjusted_consensus[t]) < 1e-6:
+    
+    # Sort tickers by absolute consensus score descending
+    sorted_tickers = sorted(adjusted_consensus.keys(), key=lambda t: abs(adjusted_consensus[t]), reverse=True)
+    
+    for i, t in enumerate(sorted_tickers):
+        score = adjusted_consensus[t]
+        # Keep if within Top 50 AND above the minimum residual threshold
+        if i < MAX_POSITIONS and abs(score) >= 1e-6:
+            active_tickers.append(t)
+        else:
             adjusted_consensus[t] = 0.0
             zero_tickers.append(t)
-        else:
-            active_tickers.append(t)
 
     # Filter inputs for QP to reduce dimensionality drastically (O(N^3) optimization)
     active_consensus = {t: adjusted_consensus[t] for t in active_tickers}
