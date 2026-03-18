@@ -44,6 +44,7 @@ def main():
     parser.add_argument("--labels", nargs='+', required=True, help="List of labels matching the files")
     parser.add_argument("--output", type=str, default="alpha_comparison.png", help="Output PNG path")
     parser.add_argument("--benchmark", type=str, default="^GSPC", help="Yahoo Finance ticker for benchmark (default: ^GSPC for S&P 500)")
+    parser.add_argument("--title-note", type=str, default="(Zero Friction / 100% Daily Turnover)", help="Custom subtitle/note to appear in the plot title")
     
     args = parser.parse_args()
     
@@ -125,7 +126,8 @@ def main():
             logger.warning(f"Failed to fetch benchmark {args.benchmark}: {e}")
 
     # Finalize plot formatting
-    plt.title("Pure 1-Day Forward Alpha Cumulative Returns\n(Zero Friction / 100% Daily Turnover)", fontsize=16, fontweight='bold')
+    title_text = f"Cumulative Returns\n{args.title_note}" if args.title_note else "Cumulative Returns"
+    plt.title(title_text, fontsize=16, fontweight='bold')
     plt.xlabel("Date", fontsize=12)
     plt.ylabel("Cumulative Return (Base 1.0)", fontsize=12)
     plt.grid(True, linestyle='--', alpha=0.7)
