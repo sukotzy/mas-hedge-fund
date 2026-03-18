@@ -360,7 +360,7 @@ def main():
     parser.add_argument("--disable-risk-manager", action="store_true", help="Disable Risk Manager and allow full allocations")
     parser.add_argument("--fast", action="store_true", help="Use pre-loaded PriceMatrix for O(1) lookups (much faster for long backtests)")
     parser.add_argument("--turnover-penalty", type=float, default=0.05, help="L1 penalty for turnover in QP optimizer")
-    parser.add_argument("--decay-mode", type=str, choices=["none", "soft", "harsh", "instant"], default="harsh", help="Configure the kinematic decay speed for legacy positions")
+    parser.add_argument("--decay-mode", type=str, choices=["none", "soft", "harsh"], default="harsh", help="Configure the kinematic decay speed for legacy positions")
     parser.add_argument("--segregate-capital", type=float, default=0.0, help="Ratio (0.0 to 1.0) of capital to allocate to fresh signals vs old decayed holdings. 0.0 disables segregation.")
     parser.add_argument("--transfer-rate", type=float, default=1.0, help="Multiplier for the zero-sum capital transfer penalty/reward.")
     parser.add_argument("--enable-smoothing", action="store_true", help="Enable EMA smoothing for alpha and capital floor protection in the betting market.")

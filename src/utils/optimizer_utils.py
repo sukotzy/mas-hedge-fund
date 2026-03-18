@@ -202,8 +202,6 @@ def calculate_optimal_portfolio(
                 
                 if decay_mode == "none":
                     decay_factor = 0.0
-                elif decay_mode == "instant":
-                    decay_factor = 1.0  # Immediately drop to 0.0 score below by enforcing 1.0 explicit decay
                 else:
                     df = prices_history.get(ticker)
                     if df is not None and len(df) >= 6 and "close" in df.columns:
@@ -274,11 +272,8 @@ def calculate_optimal_portfolio(
                             decay_factor = 0.0
                     else:
                         decay_factor = 0.0
-                
-                if decay_mode == "instant":
-                    adjusted_consensus[ticker] = 0.0
-                else:
-                    adjusted_consensus[ticker] = prev_cons * decay_factor
+                    
+                adjusted_consensus[ticker] = prev_cons * decay_factor
             else:
                 # No signal and holding is 0
                 adjusted_consensus[ticker] = 0.0
