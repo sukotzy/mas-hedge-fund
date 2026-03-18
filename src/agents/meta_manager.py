@@ -59,7 +59,7 @@ def meta_manager_agent(state: AgentState, agent_id: str = "meta_manager_agent"):
     }
 
 
-def settle_bets(agent_capital, previous_bets, current_prices, previous_prices, transfer_rate: float = 1.0, enable_smoothing: bool = False):
+def settle_bets(agent_capital, previous_bets, current_prices, previous_prices, transfer_rate: float = 1.0, enable_smoothing: bool = False, max_daily_loss_pct: float = 0.25):
     """
     Settles bets based on relative performance (Alpha) using Dual-Tranche Attribution.
     Zero-Sum Game: Agents who underperform the average pay into a pool; 
@@ -147,14 +147,13 @@ def settle_bets(agent_capital, previous_bets, current_prices, previous_prices, t
             total_cap = caps.get("internal_capital", 0) + caps.get("external_capital", 0)
             
             MIN_CAPITAL = 1000.0  # Absolute floor
-            MAX_DAILY_LOSS_PCT = 0.05  # Cap single-day wealth wipeout at 5%
             
             # Calculate theoretical penalty with leverage
             theoretical_penalty = total_cap * abs(effective_alpha) * transfer_rate
             
             if enable_smoothing:
-                # Constrain penalty: 1) Cannot exceed 5% of current wealth. 2) Cannot drop below MIN_CAPITAL.
-                max_allowed_loss = total_cap * MAX_DAILY_LOSS_PCT
+                # Constrain penalty: 1) Cannot exceed max_daily_loss_pct of current wealth. 2) Cannot drop below MIN_CAPITAL.
+                max_allowed_loss = total_cap * max_daily_loss_pct
                 available_to_lose = max(0.0, total_cap - MIN_CAPITAL)
                 
                 actual_penalty = min(theoretical_penalty, max_allowed_loss, available_to_lose)
