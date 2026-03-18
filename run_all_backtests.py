@@ -21,6 +21,7 @@ def main():
     parser.add_argument("--disable-risk-manager", action="store_true", help="Disable Risk Manager and allow full allocations")
     parser.add_argument("--turnover-penalty", type=float, default=0.05, help="L1 penalty for turnover in QP optimizer")
     parser.add_argument("--decay-mode", type=str, choices=["none", "soft", "harsh"], default="harsh", help="Configure the kinematic decay speed for legacy positions")
+    parser.add_argument("--segregate-capital", type=float, default=0.0, help="Ratio (0.0 to 1.0) of capital to allocate to fresh signals vs old decayed holdings. 0.0 disables segregation.")
     
     args = parser.parse_args()
 
@@ -116,6 +117,8 @@ def main():
             cmd.extend(["--turnover-penalty", str(args.turnover_penalty)])
         if args.decay_mode != "harsh":
             cmd.extend(["--decay-mode", args.decay_mode])
+        if args.segregate_capital > 0.0:
+            cmd.extend(["--segregate-capital", str(args.segregate_capital)])
         
         try:
             subprocess.run(cmd, check=True)

@@ -61,7 +61,7 @@ def get_dynamic_rf_rate(date_str: str, rf_df: pd.DataFrame) -> float:
                 return float(past_rates.iloc[-1]['risk_free_rate'])
     return 0.05 / 252
 
-def process_day(day_data: dict, rf_rate: float, portfolio: Portfolio, executor: TradeExecutor, previous_consensus: dict, previous_prices: dict, agent_name: str, disable_risk_manager: bool = False, turnover_penalty: float = 0.05, decay_mode: str = "harsh", price_matrix=None):
+def process_day(day_data: dict, rf_rate: float, portfolio: Portfolio, executor: TradeExecutor, previous_consensus: dict, previous_prices: dict, agent_name: str, disable_risk_manager: bool = False, turnover_penalty: float = 0.05, decay_mode: str = "harsh", segregate_capital: float = 0.0, price_matrix=None):
     date_str = day_data["date"]
     tickers = day_data["tickers"]
     rm_tickers = [t for t in tickers if t != "CASH"]
@@ -167,7 +167,8 @@ def process_day(day_data: dict, rf_rate: float, portfolio: Portfolio, executor: 
         risk_free_rate=rf_rate,
         use_risk_manager=not disable_risk_manager,
         turnover_penalty=turnover_penalty,
-        decay_mode=decay_mode
+        decay_mode=decay_mode,
+        segregate_capital=segregate_capital
     )
     
     logger.info(f"[{date_str}] Target Shares:")
@@ -248,6 +249,7 @@ def main():
     parser.add_argument("--fast", action="store_true", help="Use pre-loaded PriceMatrix")
     parser.add_argument("--turnover-penalty", type=float, default=0.05, help="L1 penalty for turnover in QP optimizer")
     parser.add_argument("--decay-mode", type=str, choices=["none", "soft", "harsh"], default="harsh", help="Configure the kinematic decay speed for legacy positions")
+    parser.add_argument("--segregate-capital", type=float, default=0.0, help="Ratio (0.0 to 1.0) of capital to allocate to fresh signals vs old decayed holdings. 0.0 disables segregation.")
     args = parser.parse_args()
 
     input_file = Path(args.input_file)
@@ -313,6 +315,7 @@ def main():
                                       disable_risk_manager=args.disable_risk_manager,
                                       turnover_penalty=args.turnover_penalty,
                                       decay_mode=args.decay_mode,
+                                      segregate_capital=args.segregate_capital,
                                       price_matrix=price_matrix) 
                     
                     out_f.write(json.dumps(res) + "\n")

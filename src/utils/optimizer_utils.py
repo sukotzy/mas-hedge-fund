@@ -11,8 +11,10 @@ def solve_optimization_qp(
     current_prices: dict[str, float],
     portfolio_value: float,
     risk_limits: dict[str, float],
+    today_consensus: dict[str, float],
     lambda_penalty: float = 0.05,
-    use_risk_manager: bool = True
+    use_risk_manager: bool = True,
+    segregate_capital: float = 0.0
 ) -> dict[str, float]:
     """
     Runs Quadratic Programming Optimization with Turnover Penalty.
@@ -29,12 +31,48 @@ def solve_optimization_qp(
     if n == 0 or portfolio_value <= 0:
         return {t: 0.0 for t in current_prices.keys()}
         
-    # 1. Target Weights
-    total_score = sum(abs(v) for v in adjusted_consensus.values())
+    # 1. Target Weights Calculation
     target_w = np.zeros(n)
-    if total_score > 0:
+    
+    if segregate_capital > 0.0:
+        # --- NEW LOGIC: Capital Segregation ---
+        # Separate today's fresh signals from old decayed holdings
+        fresh_tickers = [t for t in tickers if t in today_consensus and today_consensus[t] != 0.0]
+        old_tickers = [t for t in tickers if t not in fresh_tickers]
+        
+        fresh_score = sum(abs(adjusted_consensus.get(t, 0.0)) for t in fresh_tickers)
+        old_score = sum(abs(adjusted_consensus.get(t, 0.0)) for t in old_tickers)
+        
+        # Determine bucket allocations 
+        if fresh_score > 0 and old_score > 0:
+            fresh_bucket_weight = segregate_capital
+            old_bucket_weight = 1.0 - segregate_capital
+        elif fresh_score > 0 and old_score == 0:
+            fresh_bucket_weight = 1.0
+            old_bucket_weight = 0.0
+        elif fresh_score == 0 and old_score > 0:
+            fresh_bucket_weight = 0.0
+            old_bucket_weight = 1.0
+        else:
+            fresh_bucket_weight = 0.0
+            old_bucket_weight = 0.0
+
         for i, t in enumerate(tickers):
-            target_w[i] = adjusted_consensus.get(t, 0.0) / total_score
+            score = abs(adjusted_consensus.get(t, 0.0))
+            if score == 0:
+                target_w[i] = 0.0
+                continue
+                
+            if t in fresh_tickers:
+                target_w[i] = (score / fresh_score) * fresh_bucket_weight
+            else:
+                target_w[i] = (score / old_score) * old_bucket_weight
+    else:
+        # --- ORIGINAL LOGIC: Proportional Allocation ---
+        total_score = sum(abs(v) for v in adjusted_consensus.values())
+        if total_score > 0:
+            for i, t in enumerate(tickers):
+                target_w[i] = abs(adjusted_consensus.get(t, 0.0)) / total_score
             
     # 2. Previous Weights
     prev_w = np.zeros(n)
@@ -102,7 +140,8 @@ def calculate_optimal_portfolio(
     risk_free_rate: float,
     use_risk_manager: bool = True,
     turnover_penalty: float = 0.05,
-    decay_mode: str = "harsh"
+    decay_mode: str = "harsh",
+    segregate_capital: float = 0.0
 ) -> tuple[dict[str, float], dict[str, float]]:
     """
     Stateful, Four-Tier Kinematic Risk Model optimizer.
@@ -271,8 +310,10 @@ def calculate_optimal_portfolio(
         current_prices=active_prices,
         portfolio_value=initial_capital,
         risk_limits=active_risk_limits,
+        today_consensus=today_consensus,
         lambda_penalty=turnover_penalty,
-        use_risk_manager=use_risk_manager
+        use_risk_manager=use_risk_manager,
+        segregate_capital=segregate_capital
     )
 
     # Merge results: Zero-consensus tickers are implicitly liquidated (target=0.0)
