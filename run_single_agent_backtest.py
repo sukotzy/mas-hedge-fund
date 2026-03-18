@@ -61,7 +61,7 @@ def get_dynamic_rf_rate(date_str: str, rf_df: pd.DataFrame) -> float:
                 return float(past_rates.iloc[-1]['risk_free_rate'])
     return 0.05 / 252
 
-def process_day(day_data: dict, rf_rate: float, portfolio: Portfolio, executor: TradeExecutor, previous_consensus: dict, previous_prices: dict, agent_name: str, disable_risk_manager: bool = False, turnover_penalty: float = 0.05, decay_mode: str = "harsh", segregate_capital: float = 0.0, price_matrix=None):
+def process_day(day_data: dict, rf_rate: float, portfolio: Portfolio, executor: TradeExecutor, previous_consensus: dict, previous_prices: dict, agent_name: str, disable_risk_manager: bool = False, turnover_penalty: float = 0.05, decay_mode: str = "harsh", segregate_capital: float = 0.0, transfer_rate: float = 1.0, enable_smoothing: bool = False, enable_safety_net: bool = False, max_daily_loss_pct: float = 0.25, price_matrix=None):
     date_str = day_data["date"]
     tickers = day_data["tickers"]
     rm_tickers = [t for t in tickers if t != "CASH"]
@@ -320,6 +320,10 @@ def main():
                                       turnover_penalty=args.turnover_penalty,
                                       decay_mode=args.decay_mode,
                                       segregate_capital=args.segregate_capital,
+                                      transfer_rate=args.transfer_rate,
+                                      enable_smoothing=args.enable_smoothing,
+                                      enable_safety_net=args.enable_safety_net,
+                                      max_daily_loss_pct=args.max_daily_loss_pct,
                                       price_matrix=price_matrix) 
                     
                     out_f.write(json.dumps(res) + "\n")
