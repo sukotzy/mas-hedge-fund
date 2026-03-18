@@ -14,6 +14,8 @@ def main():
                         help="Root directories to scan for experiment results (.jsonl folders)")
     parser.add_argument("--out-dir", type=str, default="data/backtests_with_risk_manager",
                         help="Folder to save backtest results")
+    parser.add_argument("--out-name", type=str, default=None,
+                        help="Explicit filename for the output (e.g., 'benchmark_run.jsonl'). ONLY works when processing a single base-dir experiment.")
     parser.add_argument("--initial-cash", type=float, default=100000.0, help="Initial portfolio cash")
     parser.add_argument("--margin-requirement", type=float, default=0.25, help="Margin requirement")
     parser.add_argument("--fast", action="store_true", help="Use pre-loaded PriceMatrix for fast O(1) lookups")
@@ -68,11 +70,18 @@ def main():
         # 将路径转换为安全的文件名
         safe_name = str(exp_dir).replace("data\\", "").replace("data/", "").replace("\\", "_").replace("/", "_")
         
-        # 如果是单跑 Agent，在输出文件名加上 agent 前缀
-        if args.agent:
-            output_file = out_dir / f"{safe_name}_{args.agent}.jsonl"
+        # 如果指定了自定义文件名且只有单个实验文件夹 (防止多个被覆盖)
+        if hasattr(args, 'out_name') and args.out_name and len(experiment_dirs) == 1:
+            output_file = out_dir / args.out_name
         else:
-            output_file = out_dir / f"{safe_name}.jsonl"
+            if args.out_name and len(experiment_dirs) > 1:
+                print(f"⚠️ Warning: --out-name '{args.out_name}' was specified but {len(experiment_dirs)} experiments found. Reverting to automatic naming to prevent overwriting.")
+                
+            # 如果是单跑 Agent，在输出文件名加上 agent 前缀
+            if args.agent:
+                output_file = out_dir / f"{safe_name}_{args.agent}.jsonl"
+            else:
+                output_file = out_dir / f"{safe_name}.jsonl"
         
         # 获取该文件夹下所有的 .jsonl 文件，并按字母(时间)顺序排序
         jsonl_files = sorted(Path(exp_dir).glob("*.jsonl"))
