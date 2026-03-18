@@ -364,6 +364,7 @@ def main():
     parser.add_argument("--segregate-capital", type=float, default=0.0, help="Ratio (0.0 to 1.0) of capital to allocate to fresh signals vs old decayed holdings. 0.0 disables segregation.")
     parser.add_argument("--transfer-rate", type=float, default=1.0, help="Multiplier for the zero-sum capital transfer penalty/reward.")
     parser.add_argument("--enable-smoothing", action="store_true", help="Enable EMA smoothing for alpha and capital floor protection in the betting market.")
+    parser.add_argument("--enable-safety-net", action="store_true", help="Enable maximum daily loss caps and absolute bankruptcy floors in the betting market.")
     parser.add_argument("--max-daily-loss-pct", type=float, default=0.25, help="Maximum percentage of current capital an agent can lose in a single day during zero-sum settlement.")
     args = parser.parse_args()
 
@@ -447,6 +448,7 @@ def main():
                                       segregate_capital=args.segregate_capital,
                                       transfer_rate=args.transfer_rate,
                                       enable_smoothing=args.enable_smoothing,
+                                      enable_safety_net=args.enable_safety_net,
                                       max_daily_loss_pct=args.max_daily_loss_pct,
                                       price_matrix=price_matrix) 
                     
