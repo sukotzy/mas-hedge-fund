@@ -44,7 +44,7 @@ def main():
     parser.add_argument("--labels", nargs='+', required=True, help="List of labels matching the files")
     parser.add_argument("--output", type=str, default="alpha_comparison.png", help="Output PNG path")
     parser.add_argument("--benchmark", type=str, default="^GSPC", help="Yahoo Finance ticker for benchmark (default: ^GSPC for S&P 500)")
-    parser.add_argument("--title-note", type=str, default="(Zero Friction / 100% Daily Turnover)", help="Custom subtitle/note to appear in the plot title")
+    parser.add_argument("--title-note", type=str, default="", help="Custom subtitle/note to appear in the plot title")
     
     args = parser.parse_args()
     
