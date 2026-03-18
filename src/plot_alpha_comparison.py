@@ -45,6 +45,8 @@ def main():
     parser.add_argument("--output", type=str, default="alpha_comparison.png", help="Output PNG path")
     parser.add_argument("--benchmark", type=str, default="^GSPC", help="Yahoo Finance ticker for benchmark (default: ^GSPC for S&P 500)")
     parser.add_argument("--title-note", type=str, default="", help="Custom subtitle/note to appear in the plot title")
+    parser.add_argument("--average-files", nargs='*', help="Compute equal-weight daily average of these files and plot as a single line.")
+    parser.add_argument("--average-label", type=str, default="Static Equal-Weight Average", help="Label for the averaged line")
     
     args = parser.parse_args()
     
@@ -78,6 +80,30 @@ def main():
         
         # Plot the curve
         plt.plot(cumulative_return.index, cumulative_return.values, label=label, linewidth=1.5)
+
+    if args.average_files:
+        avg_returns_list = []
+        for file_str in args.average_files:
+            file_path = Path(file_str)
+            if file_path.exists():
+                logger.info(f"Adding {file_path.name} to Static Average...")
+                daily_ret = parse_jsonl_to_daily_returns(file_path)
+                if not daily_ret.empty:
+                    avg_returns_list.append(daily_ret)
+            else:
+                logger.warning(f"Average file not found, skipping: {file_path}")
+                
+        if avg_returns_list:
+            df_avg = pd.DataFrame(avg_returns_list).T
+            # Average the available returns for each day (equivalent to exactly daily 1/N rebalancing among active agents)
+            avg_daily_return = df_avg.mean(axis=1)
+            
+            returns_dict[args.average_label] = avg_daily_return
+            avg_cumulative = (1 + avg_daily_return).cumprod()
+            
+            # Plot the averaged line with a distinct style
+            plt.plot(avg_cumulative.index, avg_cumulative.values, label=args.average_label, linewidth=2, linestyle='-.', color='purple')
+            logger.info("Successfully added Static Equal-Weight line to plot.")
 
     if not returns_dict:
         logger.error("No valid data to plot.")
