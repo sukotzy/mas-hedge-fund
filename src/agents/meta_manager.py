@@ -59,7 +59,7 @@ def meta_manager_agent(state: AgentState, agent_id: str = "meta_manager_agent"):
     }
 
 
-def settle_bets(agent_capital, previous_bets, current_prices, previous_prices):
+def settle_bets(agent_capital, previous_bets, current_prices, previous_prices, transfer_rate: float = 1.0, enable_smoothing: bool = False):
     """
     Settles bets based on relative performance (Alpha) using Dual-Tranche Attribution.
     Zero-Sum Game: Agents who underperform the average pay into a pool; 
@@ -122,28 +122,52 @@ def settle_bets(agent_capital, previous_bets, current_prices, previous_prices):
     avg_return = sum(agent_returns.values()) / len(agent_returns)
     
     # 3. Alpha-based Zero-Sum Settlement (Strict Subsidy Pool)
-    # Determines how fast capital moves between agents. 
-    TRANSFER_RATE = 1.0 
     
     # 3.1 Calculate Taxes (Losers pay into the pool)
     subsidy_pool = 0.0
     agent_alphas = {}
     for agent_name, ret in agent_returns.items():
-        alpha = ret - avg_return
-        agent_alphas[agent_name] = alpha
+        raw_alpha = ret - avg_return
+        caps = agent_capital[agent_name]
         
-        if alpha < 0:
-            caps = agent_capital[agent_name]
+        if enable_smoothing:
+            # Initialize with raw_alpha if not exists
+            if "smoothed_alpha" not in caps:
+                caps["smoothed_alpha"] = raw_alpha
+            else:
+                # EMA: 80% history, 20% today's noise
+                caps["smoothed_alpha"] = (0.8 * caps["smoothed_alpha"]) + (0.2 * raw_alpha)
+            effective_alpha = caps["smoothed_alpha"]
+        else:
+            effective_alpha = raw_alpha
+            
+        agent_alphas[agent_name] = effective_alpha
+        
+        if effective_alpha < 0:
             total_cap = caps.get("internal_capital", 0) + caps.get("external_capital", 0)
             
-            # Loser pays tax proportional to their size and underperformance
-            tax_amount = total_cap * abs(alpha) * TRANSFER_RATE
-            subsidy_pool += tax_amount
+            MIN_CAPITAL = 1000.0  # Absolute floor
+            MAX_DAILY_LOSS_PCT = 0.05  # Cap single-day wealth wipeout at 5%
             
-            # Deduct from loser
+            # Calculate theoretical penalty with leverage
+            theoretical_penalty = total_cap * abs(effective_alpha) * transfer_rate
+            
+            if enable_smoothing:
+                # Constrain penalty: 1) Cannot exceed 5% of current wealth. 2) Cannot drop below MIN_CAPITAL.
+                max_allowed_loss = total_cap * MAX_DAILY_LOSS_PCT
+                available_to_lose = max(0.0, total_cap - MIN_CAPITAL)
+                
+                actual_penalty = min(theoretical_penalty, max_allowed_loss, available_to_lose)
+            else:
+                # Original naive logic
+                actual_penalty = theoretical_penalty
+            
+            subsidy_pool += actual_penalty
+            
+            # Deduct `actual_penalty` from loser
             r = agent_ratios[agent_name]
-            caps["external_capital"] = max(0, caps.get("external_capital", 0) - tax_amount * r)
-            caps["internal_capital"] = max(0, caps.get("internal_capital", 0) - tax_amount * (1 - r))
+            caps["external_capital"] = max(0, caps.get("external_capital", 0) - actual_penalty * r)
+            caps["internal_capital"] = max(0, caps.get("internal_capital", 0) - actual_penalty * (1 - r))
     
     # 3.2 Distribute Pool (Winners take from the pool proportionally)
     total_positive_alpha = sum(alpha for alpha in agent_alphas.values() if alpha > 0)

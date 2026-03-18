@@ -101,7 +101,7 @@ def get_dynamic_rf_rate(date_str: str, rf_df: pd.DataFrame) -> float:
     return 0.05 / 252 # Fallback
 
 
-def process_day(day_data: dict, rf_rate: float, portfolio: Portfolio, executor: TradeExecutor, previous_consensus: dict, agent_capital: dict, previous_bets: dict, previous_prices: dict, disable_risk_manager: bool = False, turnover_penalty: float = 0.05, decay_mode: str = "harsh", segregate_capital: float = 0.0, price_matrix=None):
+def process_day(day_data: dict, rf_rate: float, portfolio: Portfolio, executor: TradeExecutor, previous_consensus: dict, agent_capital: dict, previous_bets: dict, previous_prices: dict, disable_risk_manager: bool = False, turnover_penalty: float = 0.05, decay_mode: str = "harsh", segregate_capital: float = 0.0, transfer_rate: float = 1.0, enable_smoothing: bool = False, price_matrix=None):
     date_str = day_data["date"]
     tickers = day_data["tickers"]
     rm_tickers = [t for t in tickers if t != "CASH"]
@@ -155,7 +155,14 @@ def process_day(day_data: dict, rf_rate: float, portfolio: Portfolio, executor: 
 
     # 1.1 Settle Yesterday's Bets (Zero-Sum Settlement)
     if previous_bets and previous_prices:
-        agent_capital = settle_bets(agent_capital, previous_bets, current_prices, previous_prices)
+        agent_capital = settle_bets(
+            agent_capital, 
+            previous_bets, 
+            current_prices, 
+            previous_prices,
+            transfer_rate=transfer_rate,
+            enable_smoothing=enable_smoothing
+        )
         
     # 2. Reconstruct Betting Market
     market = BettingMarket()
@@ -355,6 +362,8 @@ def main():
     parser.add_argument("--turnover-penalty", type=float, default=0.05, help="L1 penalty for turnover in QP optimizer")
     parser.add_argument("--decay-mode", type=str, choices=["none", "soft", "harsh"], default="harsh", help="Configure the kinematic decay speed for legacy positions")
     parser.add_argument("--segregate-capital", type=float, default=0.0, help="Ratio (0.0 to 1.0) of capital to allocate to fresh signals vs old decayed holdings. 0.0 disables segregation.")
+    parser.add_argument("--transfer-rate", type=float, default=1.0, help="Multiplier for the zero-sum capital transfer penalty/reward.")
+    parser.add_argument("--enable-smoothing", action="store_true", help="Enable EMA smoothing for alpha and capital floor protection in the betting market.")
     args = parser.parse_args()
 
     input_file = Path(args.input_file)
@@ -435,6 +444,8 @@ def main():
                                       turnover_penalty=args.turnover_penalty,
                                       decay_mode=args.decay_mode,
                                       segregate_capital=args.segregate_capital,
+                                      transfer_rate=args.transfer_rate,
+                                      enable_smoothing=args.enable_smoothing,
                                       price_matrix=price_matrix) 
                     
                     # Write result IMMEDIATELY to prevent memory accumulation (OOM fix)

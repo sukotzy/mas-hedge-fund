@@ -22,6 +22,8 @@ def main():
     parser.add_argument("--turnover-penalty", type=float, default=0.05, help="L1 penalty for turnover in QP optimizer")
     parser.add_argument("--decay-mode", type=str, choices=["none", "soft", "harsh"], default="harsh", help="Configure the kinematic decay speed for legacy positions")
     parser.add_argument("--segregate-capital", type=float, default=0.0, help="Ratio (0.0 to 1.0) of capital to allocate to fresh signals vs old decayed holdings. 0.0 disables segregation.")
+    parser.add_argument("--transfer-rate", type=float, default=1.0, help="Multiplier for the zero-sum capital transfer penalty/reward.")
+    parser.add_argument("--enable-smoothing", action="store_true", help="Enable EMA smoothing for alpha and capital floor protection in the betting market.")
     
     args = parser.parse_args()
 
@@ -119,6 +121,10 @@ def main():
             cmd.extend(["--decay-mode", args.decay_mode])
         if args.segregate_capital > 0.0:
             cmd.extend(["--segregate-capital", str(args.segregate_capital)])
+        if args.transfer_rate != 1.0:
+            cmd.extend(["--transfer-rate", str(args.transfer_rate)])
+        if args.enable_smoothing:
+            cmd.append("--enable-smoothing")
         
         try:
             subprocess.run(cmd, check=True)
