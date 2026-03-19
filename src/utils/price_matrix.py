@@ -56,10 +56,11 @@ class PriceMatrix:
         if ts in self._close_matrix.index:
             val = self._close_matrix.at[ts, permno]
             return float(val) if pd.notna(val) else 0.0
-        # Fallback: find closest date <= ts
-        mask = self._close_matrix.index <= ts
-        if mask.any():
-            last_date = self._close_matrix.index[mask][-1]
+        # Fallback: find closest date <= ts using fast O(log N) numpy search
+        idx = np.searchsorted(self._dates, np.datetime64(ts), side='right')
+        # If idx == 0, it means all dates are > ts, so no previous date exists
+        if idx > 0:
+            last_date = self._dates[idx - 1]
             val = self._close_matrix.at[last_date, permno]
             return float(val) if pd.notna(val) else 0.0
         return 0.0

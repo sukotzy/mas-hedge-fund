@@ -28,6 +28,7 @@ def main():
     parser.add_argument("--enable-smoothing", action="store_true", help="Enable EMA smoothing for alpha and capital floor protection in the betting market.")
     parser.add_argument("--enable-safety-net", action="store_true", help="Enable maximum daily loss caps and absolute bankruptcy floors in the betting market.")
     parser.add_argument("--max-daily-loss-pct", type=float, default=0.25, help="Maximum percentage of current capital an agent can lose in a single day during zero-sum settlement.")
+    parser.add_argument("--active-agents", nargs='+', default=["fundamental", "technical", "valuation", "sentiment"], help="List of active agents participating in the Meta Manager")
     
     args = parser.parse_args()
 
@@ -140,6 +141,11 @@ def main():
             cmd.append("--enable-safety-net")
         if args.max_daily_loss_pct != 0.25:
             cmd.extend(["--max-daily-loss-pct", str(args.max_daily_loss_pct)])
+        
+        # Pass active agents only if it's the multi-agent run
+        if not args.agent and args.active_agents:
+            cmd.append("--active-agents")
+            cmd.extend(args.active_agents)
         
         try:
             subprocess.run(cmd, check=True)

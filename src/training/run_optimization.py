@@ -101,7 +101,10 @@ def get_dynamic_rf_rate(date_str: str, rf_df: pd.DataFrame) -> float:
     return 0.05 / 252 # Fallback
 
 
-def process_day(day_data: dict, rf_rate: float, portfolio: Portfolio, executor: TradeExecutor, previous_consensus: dict, agent_capital: dict, previous_bets: dict, previous_prices: dict, disable_risk_manager: bool = False, turnover_penalty: float = 0.05, decay_mode: str = "harsh", segregate_capital: float = 0.0, transfer_rate: float = 1.0, enable_smoothing: bool = False, enable_safety_net: bool = False, max_daily_loss_pct: float = 0.25, price_matrix=None):
+def process_day(day_data: dict, rf_rate: float, portfolio: Portfolio, executor: TradeExecutor, previous_consensus: dict, agent_capital: dict, previous_bets: dict, previous_prices: dict, disable_risk_manager: bool = False, turnover_penalty: float = 0.05, decay_mode: str = "harsh", segregate_capital: float = 0.0, transfer_rate: float = 1.0, enable_smoothing: bool = False, enable_safety_net: bool = False, max_daily_loss_pct: float = 0.25, price_matrix=None, active_agents: list = None):
+    if active_agents is None:
+        active_agents = ["fundamental", "technical", "valuation", "sentiment"]
+        
     date_str = day_data["date"]
     tickers = day_data["tickers"]
     rm_tickers = [t for t in tickers if t != "CASH"]
@@ -166,7 +169,7 @@ def process_day(day_data: dict, rf_rate: float, portfolio: Portfolio, executor: 
         
     # 2. Reconstruct Betting Market
     market = BettingMarket()
-    agent_names = ["fundamental", "technical", "valuation", "sentiment"]
+    agent_names = active_agents
     
     logger.info(f"\n[{date_str}] --- DAY START ---")
     
@@ -366,6 +369,7 @@ def main():
     parser.add_argument("--enable-smoothing", action="store_true", help="Enable EMA smoothing for alpha and capital floor protection in the betting market.")
     parser.add_argument("--enable-safety-net", action="store_true", help="Enable maximum daily loss caps and absolute bankruptcy floors in the betting market.")
     parser.add_argument("--max-daily-loss-pct", type=float, default=0.25, help="Maximum percentage of current capital an agent can lose in a single day during zero-sum settlement.")
+    parser.add_argument("--active-agents", nargs='+', default=["fundamental", "technical", "valuation", "sentiment"], help="List of active agents participating in the Meta Manager")
     args = parser.parse_args()
 
     input_file = Path(args.input_file)
@@ -420,7 +424,7 @@ def main():
             "external_capital": 50000.0,
             "internal_capital": 50000.0,
             "roi_history": []
-        } for agent in ["fundamental", "technical", "valuation", "sentiment"]
+        } for agent in args.active_agents
     }
     previous_bets = {}
     previous_prices = {}
@@ -450,7 +454,8 @@ def main():
                                       enable_smoothing=args.enable_smoothing,
                                       enable_safety_net=args.enable_safety_net,
                                       max_daily_loss_pct=args.max_daily_loss_pct,
-                                      price_matrix=price_matrix) 
+                                      price_matrix=price_matrix,
+                                      active_agents=args.active_agents) 
                     
                     # Write result IMMEDIATELY to prevent memory accumulation (OOM fix)
                     out_f.write(json.dumps(res) + "\n")
