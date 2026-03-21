@@ -34,6 +34,12 @@ def solve_optimization_qp(
     # 1. Target Weights Calculation
     target_w = np.zeros(n)
     
+    # --- NEW FIX: 提取 CASH 的比例，压缩风险资产池 ---
+    total_global_score = sum(abs(v) for v in adjusted_consensus.values())
+    cash_score = abs(adjusted_consensus.get("CASH", 0.0))
+    cash_ratio = (cash_score / total_global_score) if total_global_score > 0 else 0.0
+    risky_alloc_budget = 1.0 - cash_ratio # 留给股票的实际仓位上限
+    
     if segregate_capital > 0.0:
         # --- NEW LOGIC: Capital Segregation ---
         # Separate today's fresh signals from old decayed holdings
@@ -45,14 +51,14 @@ def solve_optimization_qp(
         
         # Determine bucket allocations 
         if fresh_score > 0 and old_score > 0:
-            fresh_bucket_weight = segregate_capital
-            old_bucket_weight = 1.0 - segregate_capital
+            fresh_bucket_weight = segregate_capital * risky_alloc_budget
+            old_bucket_weight = (1.0 - segregate_capital) * risky_alloc_budget
         elif fresh_score > 0 and old_score == 0:
-            fresh_bucket_weight = 1.0
+            fresh_bucket_weight = 1.0 * risky_alloc_budget
             old_bucket_weight = 0.0
         elif fresh_score == 0 and old_score > 0:
             fresh_bucket_weight = 0.0
-            old_bucket_weight = 1.0
+            old_bucket_weight = 1.0 * risky_alloc_budget
         else:
             fresh_bucket_weight = 0.0
             old_bucket_weight = 0.0
@@ -69,10 +75,9 @@ def solve_optimization_qp(
                 target_w[i] = (score / old_score) * old_bucket_weight
     else:
         # --- ORIGINAL LOGIC: Proportional Allocation ---
-        total_score = sum(abs(v) for v in adjusted_consensus.values())
-        if total_score > 0:
+        if total_global_score > 0:
             for i, t in enumerate(tickers):
-                target_w[i] = abs(adjusted_consensus.get(t, 0.0)) / total_score
+                target_w[i] = abs(adjusted_consensus.get(t, 0.0)) / total_global_score
             
     # 2. Previous Weights
     prev_w = np.zeros(n)

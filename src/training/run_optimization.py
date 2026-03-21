@@ -101,9 +101,9 @@ def get_dynamic_rf_rate(date_str: str, rf_df: pd.DataFrame) -> float:
     return 0.05 / 252 # Fallback
 
 
-def process_day(day_data: dict, rf_rate: float, portfolio: Portfolio, executor: TradeExecutor, previous_consensus: dict, agent_capital: dict, previous_bets: dict, previous_prices: dict, disable_risk_manager: bool = False, turnover_penalty: float = 0.05, decay_mode: str = "harsh", segregate_capital: float = 0.0, transfer_rate: float = 1.0, enable_smoothing: bool = False, enable_safety_net: bool = False, max_daily_loss_pct: float = 0.25, price_matrix=None, active_agents: list = None):
+def process_day(day_data: dict, rf_rate: float, portfolio: Portfolio, executor: TradeExecutor, previous_consensus: dict, agent_capital: dict, previous_bets: dict, previous_prices: dict, disable_risk_manager: bool = False, turnover_penalty: float = 0.05, decay_mode: str = "harsh", segregate_capital: float = 0.0, transfer_rate: float = 1.0, enable_smoothing: bool = False, smoothing_factor: float = 0.2, enable_safety_net: bool = False, max_daily_loss_pct: float = 0.25, price_matrix=None, active_agents: list = None, use_replicator_dynamics: bool = False, rd_eta: float = 25.0, rd_tau: float = 0.05):
     if active_agents is None:
-        active_agents = ["fundamental", "technical", "valuation", "sentiment"]
+        active_agents = ["fundamental", "technical", "valuation", "sentiment", "virtual_cash"]
         
     date_str = day_data["date"]
     tickers = day_data["tickers"]
@@ -164,7 +164,14 @@ def process_day(day_data: dict, rf_rate: float, portfolio: Portfolio, executor: 
             current_prices, 
             previous_prices,
             transfer_rate=transfer_rate,
-            enable_smoothing=enable_smoothing
+            enable_smoothing=enable_smoothing,
+            smoothing_factor=smoothing_factor,
+            enable_safety_net=enable_safety_net,
+            max_daily_loss_pct=max_daily_loss_pct,
+            use_replicator_dynamics=use_replicator_dynamics,
+            rd_eta=rd_eta,
+            rd_tau=rd_tau,
+            risk_free_rate=rf_rate
         )
         
     # 2. Reconstruct Betting Market
@@ -174,9 +181,16 @@ def process_day(day_data: dict, rf_rate: float, portfolio: Portfolio, executor: 
     logger.info(f"\n[{date_str}] --- DAY START ---")
     
     for agent in agent_names:
-        if agent not in day_data:
+        # Auto-inject virtual cash for backward compatibility with old datasets
+        if agent == "virtual_cash" and agent not in day_data:
+            decision = {
+                "allocations": [{"ticker": "CASH", "direction": "long", "amount": 100.0}],
+                "reasoning": "Injected risk-off safe haven."
+            }
+        elif agent not in day_data:
             continue
-        decision = day_data[agent]
+        else:
+            decision = day_data[agent]
         
         dynamic_cap = agent_capital[agent].get("external_capital", 0) + agent_capital[agent].get("internal_capital", 0)
         
@@ -334,7 +348,12 @@ def process_day(day_data: dict, rf_rate: float, portfolio: Portfolio, executor: 
         previous_prices[t] = current_prices.get(t, 0.0)
         
     for agent in agent_names:
-        if agent in day_data:
+        if agent == "virtual_cash" and agent not in day_data:
+            previous_bets[agent] = {
+                "allocations": [{"ticker": "CASH", "direction": "long", "amount": 100.0}],
+                "reasoning": "Injected risk-off safe haven."
+            }
+        elif agent in day_data:
             previous_bets[agent] = day_data[agent]
             
     # Prune adjusted consensus as well
@@ -367,9 +386,13 @@ def main():
     parser.add_argument("--segregate-capital", type=float, default=0.0, help="Ratio (0.0 to 1.0) of capital to allocate to fresh signals vs old decayed holdings. 0.0 disables segregation.")
     parser.add_argument("--transfer-rate", type=float, default=1.0, help="Multiplier for the zero-sum capital transfer penalty/reward.")
     parser.add_argument("--enable-smoothing", action="store_true", help="Enable EMA smoothing for alpha and capital floor protection in the betting market.")
+    parser.add_argument("--smoothing-factor", type=float, default=0.2, help="The EMA new information weight (default 0.2) when smoothing is enabled.")
     parser.add_argument("--enable-safety-net", action="store_true", help="Enable maximum daily loss caps and absolute bankruptcy floors in the betting market.")
     parser.add_argument("--max-daily-loss-pct", type=float, default=0.25, help="Maximum percentage of current capital an agent can lose in a single day during zero-sum settlement.")
-    parser.add_argument("--active-agents", nargs='+', default=["fundamental", "technical", "valuation", "sentiment"], help="List of active agents participating in the Meta Manager")
+    parser.add_argument("--use-replicator-dynamics", action="store_true", help="Use Replicator Dynamics with Uniform Mutation for zero-sum settlement.")
+    parser.add_argument("--rd-eta", type=float, default=25.0, help="Exponential amplifier (learning rate) for Replicator Dynamics.")
+    parser.add_argument("--rd-tau", type=float, default=0.05, help="Wealth tax / mutation rate for Replicator Dynamics.")
+    parser.add_argument("--active-agents", nargs='+', default=["fundamental", "technical", "valuation", "sentiment", "virtual_cash"], help="List of active agents participating in the Meta Manager")
     args = parser.parse_args()
 
     input_file = Path(args.input_file)
@@ -452,10 +475,14 @@ def main():
                                       segregate_capital=args.segregate_capital,
                                       transfer_rate=args.transfer_rate,
                                       enable_smoothing=args.enable_smoothing,
+                                      smoothing_factor=args.smoothing_factor,
                                       enable_safety_net=args.enable_safety_net,
                                       max_daily_loss_pct=args.max_daily_loss_pct,
                                       price_matrix=price_matrix,
-                                      active_agents=args.active_agents) 
+                                      active_agents=args.active_agents,
+                                      use_replicator_dynamics=args.use_replicator_dynamics,
+                                      rd_eta=args.rd_eta,
+                                      rd_tau=args.rd_tau) 
                     
                     # Write result IMMEDIATELY to prevent memory accumulation (OOM fix)
                     out_f.write(json.dumps(res) + "\n")

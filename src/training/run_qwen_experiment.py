@@ -27,6 +27,7 @@ from src.agents.allocators.fundamental_allocator import fundamental_allocator
 from src.agents.allocators.technical_allocator import technical_allocator
 from src.agents.allocators.valuation_allocator import valuation_allocator
 from src.agents.allocators.news_sentiment_allocator import news_sentiment_allocator
+from src.agents.allocators.virtual_cash_allocator import virtual_cash_allocator
 
 from src.agents.allocators.fundamental_zh_allocator import fundamental_zh_allocator
 from src.agents.allocators.technical_zh_allocator import technical_zh_allocator
@@ -86,14 +87,16 @@ if args.lang == "zh":
         "fundamental": fundamental_zh_allocator,
         "technical": technical_zh_allocator,
         "valuation": valuation_zh_allocator,
-        "sentiment": news_sentiment_zh_allocator
+        "sentiment": news_sentiment_zh_allocator,
+        "virtual_cash": virtual_cash_allocator
     }
 else:
     ALLOCATORS = {
         "fundamental": fundamental_allocator,
         "technical": technical_allocator,
         "valuation": valuation_allocator,
-        "sentiment": news_sentiment_allocator
+        "sentiment": news_sentiment_allocator,
+        "virtual_cash": virtual_cash_allocator
     }
 
 def load_candidates(filename):
@@ -182,7 +185,8 @@ def main():
             "fundamental": 100.0,
             "technical": 100.0,
             "valuation": 100.0,
-            "sentiment": 100.0
+            "sentiment": 100.0,
+            "virtual_cash": 100.0
         }
         current_month = None
         
@@ -282,7 +286,9 @@ def main():
                     for alloc in dec.get("allocations", []):
                         print(f"  -> {alloc['direction'].upper()} {alloc['ticker']}: {alloc['amount']:.2f}")
                         print(f"     Reasoning: {alloc['reasoning']}")
-                    print(f"  -> Metrics: Net={dec['metrics']['original_net_exposure']:.2f}, Gross={dec['metrics']['original_gross_exposure']:.2f}")
+                    metric_net = dec.get('metrics', {}).get('original_net_exposure', 0.0)
+                    metric_gross = dec.get('metrics', {}).get('original_gross_exposure', 0.0)
+                    print(f"  -> Metrics: Net={metric_net:.2f}, Gross={metric_gross:.2f}")
 
     logger.info("Qwen-Max Experiment Complete.")
 

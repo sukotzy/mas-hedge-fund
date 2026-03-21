@@ -23,6 +23,7 @@ from src.agents.allocators.fundamental_allocator import fundamental_allocator
 from src.agents.allocators.technical_allocator import technical_allocator
 from src.agents.allocators.valuation_allocator import valuation_allocator
 from src.agents.allocators.news_sentiment_allocator import news_sentiment_allocator
+from src.agents.allocators.virtual_cash_allocator import virtual_cash_allocator
 
 from src.agents.allocators.fundamental_zh_allocator import fundamental_zh_allocator
 from src.agents.allocators.technical_zh_allocator import technical_zh_allocator
@@ -82,14 +83,16 @@ if args.lang == "zh":
         "fundamental": fundamental_zh_allocator,
         "technical": technical_zh_allocator,
         "valuation": valuation_zh_allocator,
-        "sentiment": news_sentiment_zh_allocator
+        "sentiment": news_sentiment_zh_allocator,
+        "virtual_cash": virtual_cash_allocator
     }
 else:
     ALLOCATORS = {
         "fundamental": fundamental_allocator,
         "technical": technical_allocator,
         "valuation": valuation_allocator,
-        "sentiment": news_sentiment_allocator
+        "sentiment": news_sentiment_allocator,
+        "virtual_cash": virtual_cash_allocator
     }
 
 def load_candidates(filename):
@@ -181,7 +184,8 @@ def main():
             "fundamental": 100.0,
             "technical": 100.0,
             "valuation": 100.0,
-            "sentiment": 100.0
+            "sentiment": 100.0,
+            "virtual_cash": 100.0
         }
         current_month = None
         

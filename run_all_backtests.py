@@ -26,9 +26,13 @@ def main():
     parser.add_argument("--segregate-capital", type=float, default=0.0, help="Ratio (0.0 to 1.0) of capital to allocate to fresh signals vs old decayed holdings. 0.0 disables segregation.")
     parser.add_argument("--transfer-rate", type=float, default=1.0, help="Multiplier for the zero-sum capital transfer penalty/reward.")
     parser.add_argument("--enable-smoothing", action="store_true", help="Enable EMA smoothing for alpha and capital floor protection in the betting market.")
+    parser.add_argument("--smoothing-factor", type=float, default=0.2, help="EMA smoothing factor.")
     parser.add_argument("--enable-safety-net", action="store_true", help="Enable maximum daily loss caps and absolute bankruptcy floors in the betting market.")
     parser.add_argument("--max-daily-loss-pct", type=float, default=0.25, help="Maximum percentage of current capital an agent can lose in a single day during zero-sum settlement.")
-    parser.add_argument("--active-agents", nargs='+', default=["fundamental", "technical", "valuation", "sentiment"], help="List of active agents participating in the Meta Manager")
+    parser.add_argument("--use-replicator-dynamics", action="store_true", help="Use Replicator Dynamics with Uniform Mutation for zero-sum settlement.")
+    parser.add_argument("--rd-eta", type=float, default=25.0, help="Exponential amplifier (learning rate) for Replicator Dynamics.")
+    parser.add_argument("--rd-tau", type=float, default=0.05, help="Wealth tax / mutation rate for Replicator Dynamics.")
+    parser.add_argument("--active-agents", nargs='+', default=["fundamental", "technical", "valuation", "sentiment", "virtual_cash"], help="List of active agents participating in the Meta Manager")
     
     args = parser.parse_args()
 
@@ -137,10 +141,18 @@ def main():
             cmd.extend(["--transfer-rate", str(args.transfer_rate)])
         if args.enable_smoothing:
             cmd.append("--enable-smoothing")
+        if args.smoothing_factor != 0.2:
+            cmd.extend(["--smoothing-factor", str(args.smoothing_factor)])
         if args.enable_safety_net:
             cmd.append("--enable-safety-net")
         if args.max_daily_loss_pct != 0.25:
             cmd.extend(["--max-daily-loss-pct", str(args.max_daily_loss_pct)])
+        if args.use_replicator_dynamics:
+            cmd.append("--use-replicator-dynamics")
+        if args.rd_eta != 25.0:
+            cmd.extend(["--rd-eta", str(args.rd_eta)])
+        if args.rd_tau != 0.05:
+            cmd.extend(["--rd-tau", str(args.rd_tau)])
         
         # Pass active agents only if it's the multi-agent run
         if not args.agent and args.active_agents:
