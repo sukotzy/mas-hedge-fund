@@ -368,6 +368,7 @@ def process_day(day_data: dict, rf_rate: float, portfolio: Portfolio, executor: 
         "updated_holdings": updated_positions,
         "consensus": consensus_values,
         "adjusted_consensus": pruned_adjusted_consensus,
+        "agent_capital": agent_capital,
         "prices": rm_prices,
         "risk_limits": risk_limits,
         "optimal_shares": optimal_shares,
