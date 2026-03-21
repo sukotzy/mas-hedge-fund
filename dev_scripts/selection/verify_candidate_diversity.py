@@ -11,7 +11,9 @@ logger = logging.getLogger(__name__)
 def analyze_candidate_diversity(
     candidates_file="data/processed/daily_candidates_with_hint.parquet",
     ohlcv_file="data/raw/sp500_ohlcv.parquet",
-    lookback_days=252
+    lookback_days=252,
+    start_date=None,
+    end_date=None
 ):
     """
     Checks if the selected candidates from Hierarchical Clustering are actually diverse
@@ -49,8 +51,13 @@ def analyze_candidate_diversity(
     prices = ohlcv.pivot(index='date', columns='ticker', values='prc').ffill(limit=3)
     returns = np.log(prices / prices.shift(1)).replace([np.inf, -np.inf], np.nan)
     
-    # Analyze a sample of dates (e.g., last 10 days to save time)
-    sample_dates = cand_df.index[-10:] # test on recent 10 processing days
+    # Filter dates based on arguments
+    if start_date:
+        cand_df = cand_df[cand_df.index >= pd.to_datetime(start_date)]
+    if end_date:
+        cand_df = cand_df[cand_df.index <= pd.to_datetime(end_date)]
+        
+    sample_dates = cand_df.index
     
     logger.info(f"\n{'='*60}")
     logger.info(f"CANDIDATE DIVERSITY ANALYSIS (Ward's Hierarchical Clustering)")
@@ -112,4 +119,10 @@ def analyze_candidate_diversity(
         logger.warning("VERDICT: WARNING. 候选股票之间的相关性较高，聚类的区分度可能不足。")
 
 if __name__ == "__main__":
-    analyze_candidate_diversity()
+    import argparse
+    parser = argparse.ArgumentParser(description="Verify candidate diversity through correlation.")
+    parser.add_argument("--start_date", type=str, default=None, help="Start date in YYYY-MM-DD format")
+    parser.add_argument("--end_date", type=str, default=None, help="End date in YYYY-MM-DD format")
+    args = parser.parse_args()
+    
+    analyze_candidate_diversity(start_date=args.start_date, end_date=args.end_date)
