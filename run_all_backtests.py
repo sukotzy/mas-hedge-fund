@@ -32,6 +32,8 @@ def main():
     parser.add_argument("--use-replicator-dynamics", action="store_true", help="Use Replicator Dynamics with Uniform Mutation for zero-sum settlement.")
     parser.add_argument("--rd-eta", type=float, default=25.0, help="Exponential amplifier (learning rate) for Replicator Dynamics.")
     parser.add_argument("--rd-tau", type=float, default=0.05, help="Wealth tax / mutation rate for Replicator Dynamics.")
+    parser.add_argument("--rd-eta-downside", type=float, default=50.0, help="Exponential amplifier for severe negative alpha (Downside Risk Aversion).")
+    parser.add_argument("--rd-eta-downside-threshold", type=float, default=-0.02, help="Alpha threshold to trigger the downside eta amplifier.")
     parser.add_argument("--active-agents", nargs='+', default=["fundamental", "technical", "valuation", "sentiment", "virtual_cash"], help="List of active agents participating in the Meta Manager")
     
     args = parser.parse_args()
@@ -153,6 +155,10 @@ def main():
             cmd.extend(["--rd-eta", str(args.rd_eta)])
         if args.rd_tau != 0.05:
             cmd.extend(["--rd-tau", str(args.rd_tau)])
+        if args.rd_eta_downside != 50.0:
+            cmd.extend(["--rd-eta-downside", str(args.rd_eta_downside)])
+        if args.rd_eta_downside_threshold != -0.02:
+            cmd.extend(["--rd-eta-downside-threshold", str(args.rd_eta_downside_threshold)])
         
         # Pass active agents only if it's the multi-agent run
         if not args.agent and args.active_agents:

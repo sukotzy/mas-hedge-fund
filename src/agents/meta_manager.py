@@ -59,7 +59,7 @@ def meta_manager_agent(state: AgentState, agent_id: str = "meta_manager_agent"):
     }
 
 
-def settle_bets(agent_capital, previous_bets, current_prices, previous_prices, transfer_rate: float = 1.0, enable_smoothing: bool = False, smoothing_factor: float = 0.2, enable_safety_net: bool = False, max_daily_loss_pct: float = 0.25, use_replicator_dynamics: bool = False, rd_eta: float = 25.0, rd_tau: float = 0.05, risk_free_rate: float = 0.0):
+def settle_bets(agent_capital, previous_bets, current_prices, previous_prices, transfer_rate: float = 1.0, enable_smoothing: bool = False, smoothing_factor: float = 0.2, enable_safety_net: bool = False, max_daily_loss_pct: float = 0.25, use_replicator_dynamics: bool = False, rd_eta: float = 25.0, rd_tau: float = 0.05, risk_free_rate: float = 0.0, rd_eta_downside: float = 50.0, rd_eta_downside_threshold: float = -0.02):
     """
     Settles bets based on relative performance (Alpha) using Dual-Tranche Attribution.
     Zero-Sum Game: Agents who underperform the average pay into a pool; 
@@ -158,8 +158,11 @@ def settle_bets(agent_capital, previous_bets, current_prices, previous_prices, t
             weights = np.array(weights) / total_pool
             alphas = np.array([agent_alphas[name] for name in agent_names_list])
             
+            # Asymmetrical Eta (Downside Risk Aversion)
+            eta_array = np.where(alphas < rd_eta_downside_threshold, rd_eta_downside, rd_eta)
+            
             # Exponential Update with clip to prevent overflow
-            exp_factor = np.exp(np.clip(rd_eta * alphas, -20.0, 20.0))
+            exp_factor = np.exp(np.clip(eta_array * alphas, -20.0, 20.0))
             w_prime = weights * exp_factor
             
             # Zero-Sum Normalization

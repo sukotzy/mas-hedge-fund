@@ -101,7 +101,7 @@ def get_dynamic_rf_rate(date_str: str, rf_df: pd.DataFrame) -> float:
     return 0.05 / 252 # Fallback
 
 
-def process_day(day_data: dict, rf_rate: float, portfolio: Portfolio, executor: TradeExecutor, previous_consensus: dict, agent_capital: dict, previous_bets: dict, previous_prices: dict, disable_risk_manager: bool = False, turnover_penalty: float = 0.05, decay_mode: str = "harsh", segregate_capital: float = 0.0, transfer_rate: float = 1.0, enable_smoothing: bool = False, smoothing_factor: float = 0.2, enable_safety_net: bool = False, max_daily_loss_pct: float = 0.25, price_matrix=None, active_agents: list = None, use_replicator_dynamics: bool = False, rd_eta: float = 25.0, rd_tau: float = 0.05):
+def process_day(day_data: dict, rf_rate: float, portfolio: Portfolio, executor: TradeExecutor, previous_consensus: dict, agent_capital: dict, previous_bets: dict, previous_prices: dict, disable_risk_manager: bool = False, turnover_penalty: float = 0.05, decay_mode: str = "harsh", segregate_capital: float = 0.0, transfer_rate: float = 1.0, enable_smoothing: bool = False, smoothing_factor: float = 0.2, enable_safety_net: bool = False, max_daily_loss_pct: float = 0.25, price_matrix=None, active_agents: list = None, use_replicator_dynamics: bool = False, rd_eta: float = 25.0, rd_tau: float = 0.05, rd_eta_downside: float = 50.0, rd_eta_downside_threshold: float = -0.02):
     if active_agents is None:
         active_agents = ["fundamental", "technical", "valuation", "sentiment", "virtual_cash"]
         
@@ -171,7 +171,9 @@ def process_day(day_data: dict, rf_rate: float, portfolio: Portfolio, executor: 
             use_replicator_dynamics=use_replicator_dynamics,
             rd_eta=rd_eta,
             rd_tau=rd_tau,
-            risk_free_rate=rf_rate
+            risk_free_rate=rf_rate,
+            rd_eta_downside=rd_eta_downside,
+            rd_eta_downside_threshold=rd_eta_downside_threshold
         )
         
     # 2. Reconstruct Betting Market
@@ -392,6 +394,8 @@ def main():
     parser.add_argument("--use-replicator-dynamics", action="store_true", help="Use Replicator Dynamics with Uniform Mutation for zero-sum settlement.")
     parser.add_argument("--rd-eta", type=float, default=25.0, help="Exponential amplifier (learning rate) for Replicator Dynamics.")
     parser.add_argument("--rd-tau", type=float, default=0.05, help="Wealth tax / mutation rate for Replicator Dynamics.")
+    parser.add_argument("--rd-eta-downside", type=float, default=50.0, help="Exponential amplifier for severe negative alpha (Downside Risk Aversion).")
+    parser.add_argument("--rd-eta-downside-threshold", type=float, default=-0.02, help="Alpha threshold to trigger the downside eta amplifier.")
     parser.add_argument("--active-agents", nargs='+', default=["fundamental", "technical", "valuation", "sentiment", "virtual_cash"], help="List of active agents participating in the Meta Manager")
     args = parser.parse_args()
 
@@ -482,7 +486,9 @@ def main():
                                       active_agents=args.active_agents,
                                       use_replicator_dynamics=args.use_replicator_dynamics,
                                       rd_eta=args.rd_eta,
-                                      rd_tau=args.rd_tau) 
+                                      rd_tau=args.rd_tau,
+                                      rd_eta_downside=args.rd_eta_downside,
+                                      rd_eta_downside_threshold=args.rd_eta_downside_threshold) 
                     
                     # Write result IMMEDIATELY to prevent memory accumulation (OOM fix)
                     out_f.write(json.dumps(res) + "\n")
