@@ -211,6 +211,9 @@ def calculate_optimal_portfolio(
         if has_signal_today:
             # Part A.1: Strictly REPLACE
             adjusted_consensus[ticker] = today_consensus[ticker]
+        elif ticker == "CASH":
+            # Maintain the CASH consensus without kinematic decay or deadband filtering
+            adjusted_consensus["CASH"] = previous_consensus.get("CASH", 0.0)
         else:
             # Part A.2: Missing/zero signal but we have holdings
             holdings = previous_holdings.get(ticker, 0.0)
