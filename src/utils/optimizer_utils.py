@@ -5,6 +5,10 @@ from scipy.optimize import linprog
 
 logger = logging.getLogger(__name__)
 
+# Global Deadband threshold for floating-point noise truncation
+# A weight < 1e-6 corresponds to < $0.1 on a $100k account, purely numerical debris
+WEIGHT_EPSILON = 1e-6
+
 def solve_optimization_qp(
     adjusted_consensus: dict[str, float],
     previous_holdings: dict[str, float],
@@ -123,6 +127,17 @@ def solve_optimization_qp(
     if not res.success:
         logger.warning(f"Optimization failed: {res.message}. Falling back to previous weights.")
         
+    # --- EPSILON DEADBAND TRUNCATION & RE-NORMALIZATION ---
+    # 1. Truncate absolute floating point garbage to pure 0.0
+    fin_w = np.where(np.abs(fin_w) < WEIGHT_EPSILON, 0.0, fin_w)
+    
+    # 2. Re-normalize remaining weights to conserve intended scale
+    current_sum = np.sum(np.abs(fin_w))
+    original_sum = np.sum(np.abs(res.x if res.success else prev_w))
+    if current_sum > 0 and original_sum > 0:
+        fin_w = fin_w * (original_sum / current_sum)
+    # ------------------------------------------------------
+        
     results = {}
     for i, t in enumerate(tickers):
         price = current_prices.get(t, 0.0)
@@ -199,7 +214,12 @@ def calculate_optimal_portfolio(
         else:
             # Part A.2: Missing/zero signal but we have holdings
             holdings = previous_holdings.get(ticker, 0.0)
-            if holdings != 0.0:
+            
+            # Translate raw shares into portfolio weight to apply Epsilon Deadband
+            price = current_prices.get(ticker, 0.0)
+            holding_weight = (holdings * price) / initial_capital if initial_capital > 0 else 0.0
+            
+            if holding_weight > WEIGHT_EPSILON or holding_weight < -WEIGHT_EPSILON:
                 prev_cons = previous_consensus.get(ticker, 0.0)
                 
                 # Part B: Four-Tier Kinematic Filter
@@ -224,16 +244,16 @@ def calculate_optimal_portfolio(
                             
                             if decay_mode == "soft":
                                 # Soft Mode: 20% hard cutoff, no MA5, slower decay across the board
-                                cond_A_long = holdings > 0 and price_delta_1d <= -0.20
-                                cond_A_short = holdings < 0 and price_delta_1d >= 0.20
+                                cond_A_long = holding_weight > WEIGHT_EPSILON and price_delta_1d <= -0.20
+                                cond_A_short = holding_weight < -WEIGHT_EPSILON and price_delta_1d >= 0.20
                                 
                                 if cond_A_long or cond_A_short:
                                     decay_factor = 0.0
                                 else:
-                                    if holdings * price_delta_3d > 0:
+                                    if holding_weight * price_delta_3d > WEIGHT_EPSILON:
                                         decay_factor = 0.98  # Tailwind Soft Landing
-                                    elif holdings * price_delta_3d < 0:
-                                        is_long = holdings > 0
+                                    elif holding_weight * price_delta_3d < -WEIGHT_EPSILON:
+                                        is_long = holding_weight > WEIGHT_EPSILON
                                         if is_long:
                                             accel = (R_t_minus_1 < R_t_minus_2) and (R_t_minus_2 < 0)
                                         else:
@@ -248,31 +268,31 @@ def calculate_optimal_portfolio(
                                         
                             elif decay_mode == "harsh":
                                 # Original Harsh Mode
-                                cond_A_long = holdings > 0 and price_delta_1d <= -0.08
-                                cond_A_short = holdings < 0 and price_delta_1d >= 0.08
+                                cond_A_long = holding_weight > WEIGHT_EPSILON and price_delta_1d <= -0.08
+                                cond_A_short = holding_weight < -WEIGHT_EPSILON and price_delta_1d >= 0.08
                                 
                                 prev_ma5 = np.mean(closes[-6:-1])
-                                cond_B_long = holdings > 0 and (latest_close < ma5) and (prev_close_1 < prev_ma5)
-                                cond_B_short = holdings < 0 and (latest_close > ma5) and (prev_close_1 > prev_ma5)
+                                cond_B_long = holding_weight > WEIGHT_EPSILON and (latest_close < ma5) and (prev_close_1 < prev_ma5)
+                                cond_B_short = holding_weight < -WEIGHT_EPSILON and (latest_close > ma5) and (prev_close_1 > prev_ma5)
                                 
                                 if cond_A_long or cond_A_short or cond_B_long or cond_B_short:
                                     decay_factor = 0.0
                                 else:
-                                    if holdings * price_delta_3d > 0:
-                                        decay_factor = 0.8
-                                    elif holdings * price_delta_3d < 0:
-                                        is_long = holdings > 0
+                                    if holding_weight * price_delta_3d > WEIGHT_EPSILON:
+                                        decay_factor = 0.95  # Tailwind Soft Landing
+                                    elif holding_weight * price_delta_3d < -WEIGHT_EPSILON:
+                                        is_long = holding_weight > WEIGHT_EPSILON
                                         if is_long:
                                             accel = (R_t_minus_1 < R_t_minus_2) and (R_t_minus_2 < 0)
                                         else:
                                             accel = (R_t_minus_1 > R_t_minus_2) and (R_t_minus_2 > 0)
                                             
                                         if accel:
-                                            decay_factor = 0.2
+                                            decay_factor = 0.50  # Headwind Acceleration
                                         else:
-                                            decay_factor = 0.5
+                                            decay_factor = 0.85  # Headwind Deceleration
                                     else:
-                                        decay_factor = 0.5
+                                        decay_factor = 0.85
                         else:
                             decay_factor = 0.0
                     else:
@@ -280,7 +300,7 @@ def calculate_optimal_portfolio(
                     
                 adjusted_consensus[ticker] = prev_cons * decay_factor
             else:
-                # No signal and holding is 0
+                # Deadband intercept: Explicitly force tiny noisy fractions to exactly 0.0
                 adjusted_consensus[ticker] = 0.0
 
     # Clean up residuals and apply Top-K Truncation (Max 50 positions)
