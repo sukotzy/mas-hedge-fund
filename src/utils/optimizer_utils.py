@@ -24,8 +24,8 @@ def solve_optimization_qp(
     2. |w_i| <= min(risk_limit_i / portfolio_value, 0.4)
     """
     from scipy.optimize import minimize
-    
-    tickers = [t for t in current_prices.keys() if t != "CASH"]
+    # Make iteration deterministic to prevent floating-point chaos
+    tickers = sorted([t for t in current_prices.keys() if t != "CASH"])
     n = len(tickers)
     
     if n == 0 or portfolio_value <= 0:
@@ -288,8 +288,8 @@ def calculate_optimal_portfolio(
     active_tickers = []
     zero_tickers = []
     
-    # Sort tickers by absolute consensus score descending
-    sorted_tickers = sorted(adjusted_consensus.keys(), key=lambda t: abs(adjusted_consensus[t]), reverse=True)
+    # Sort tickers by absolute consensus score descending, breaking ties alphabetically
+    sorted_tickers = sorted(adjusted_consensus.keys(), key=lambda t: (abs(adjusted_consensus[t]), t), reverse=True)
     
     for i, t in enumerate(sorted_tickers):
         score = adjusted_consensus[t]
