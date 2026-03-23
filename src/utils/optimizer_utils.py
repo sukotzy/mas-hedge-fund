@@ -212,8 +212,9 @@ def calculate_optimal_portfolio(
             # Part A.1: Strictly REPLACE
             adjusted_consensus[ticker] = today_consensus[ticker]
         elif ticker == "CASH":
-            # Maintain the CASH consensus without kinematic decay or deadband filtering
-            adjusted_consensus["CASH"] = previous_consensus.get("CASH", 0.0)
+            # ✅ 新逻辑：CASH 是主动避险信号，绝不跨日继承。
+            # 如果今天没有明确要求持有 CASH，则直接释放流动性，将现金共识清零
+            adjusted_consensus["CASH"] = 0.0
         else:
             # Part A.2: Missing/zero signal but we have holdings
             holdings = previous_holdings.get(ticker, 0.0)
