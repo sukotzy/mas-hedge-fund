@@ -297,6 +297,16 @@ def process_day(day_data: dict, rf_rate: float, portfolio: Portfolio, executor: 
     
     # 7. Execute Delta Trades
     executed_trades = []
+    trade_queue = []
+    
+    # Priority mapping to ensure liquidity is generated before consumption
+    priority_map = {
+        "sell": 0,    # highest priority: releases owned capital
+        "short": 1,   # leverages capital generating cash
+        "cover": 2,   # consumes capital to exit liability
+        "buy": 3      # consumes capital to enter exposure
+    }
+    
     for t in active_tickers:
         target_net_shares = optimal_shares.get(t, 0.0)
         net_holding = previous_holdings.get(t, 0)
@@ -324,14 +334,33 @@ def process_day(day_data: dict, rf_rate: float, portfolio: Portfolio, executor: 
                 quantity = delta
                 
         if action and quantity > 0 and price > 0:
-            executed_qty = executor.execute_trade(t, action, quantity, price, portfolio)
-            if executed_qty > 0:
-                executed_trades.append({
-                    "ticker": t,
-                    "action": action,
-                    "quantity": executed_qty,
-                    "price": price
-                })
+            trade_queue.append({
+                "ticker": t,
+                "action": action,
+                "quantity": quantity,
+                "price": price,
+                "priority_val": priority_map[action]
+            })
+            
+    # Sort queue deterministically by liquidity priority, then by ticker alphabetically
+    trade_queue.sort(key=lambda x: (x["priority_val"], x["ticker"]))
+    
+    # Execute sorted trades
+    for trade in trade_queue:
+        executed_qty = executor.execute_trade(
+            trade["ticker"], 
+            trade["action"], 
+            trade["quantity"], 
+            trade["price"], 
+            portfolio
+        )
+        if executed_qty > 0:
+            executed_trades.append({
+                "ticker": trade["ticker"],
+                "action": trade["action"],
+                "quantity": executed_qty,
+                "price": trade["price"]
+            })
                 
     # 8. Calculate NEW portfolio value AFTER execution
     updated_portfolio_value = calculate_portfolio_value(portfolio, current_prices)
@@ -381,7 +410,7 @@ def main():
     parser.add_argument("--input-file", type=str, default="data/enriched_decisions.jsonl")
     parser.add_argument("--output-file", type=str, default="data/optimization_results_final.jsonl")
     parser.add_argument("--initial-cash", type=float, default=100000.0)
-    parser.add_argument("--margin-requirement", type=float, default=0.5)
+    parser.add_argument("--margin-requirement", type=float, default=0.0)
     parser.add_argument("--disable-risk-manager", action="store_true", help="Disable Risk Manager and allow full allocations")
     parser.add_argument("--fast", action="store_true", help="Use pre-loaded PriceMatrix for O(1) lookups (much faster for long backtests)")
     parser.add_argument("--turnover-penalty", type=float, default=0.05, help="L1 penalty for turnover in QP optimizer")

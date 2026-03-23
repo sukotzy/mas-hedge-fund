@@ -17,7 +17,7 @@ def main():
     parser.add_argument("--out-name", type=str, default=None,
                         help="Explicit filename for the output (e.g., 'benchmark_run.jsonl'). ONLY works when processing a single base-dir experiment.")
     parser.add_argument("--initial-cash", type=float, default=100000.0, help="Initial portfolio cash")
-    parser.add_argument("--margin-requirement", type=float, default=0.25, help="Margin requirement")
+    parser.add_argument("--margin-requirement", type=float, default=0.0, help="Margin requirement")
     parser.add_argument("--fast", action="store_true", help="Use pre-loaded PriceMatrix for fast O(1) lookups")
     parser.add_argument("--agent", type=str, choices=["fundamental", "technical", "valuation", "sentiment"], default=None, help="Run single agent ablation study for a specific agent")
     parser.add_argument("--disable-risk-manager", action="store_true", help="Disable Risk Manager and allow full allocations")
