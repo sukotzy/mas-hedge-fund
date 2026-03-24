@@ -109,8 +109,8 @@ def solve_optimization_qp(
     # Objective Function
     def objective(w):
         tracking_error = np.sum((w - target_w)**2)
-        # Pseudo-Huber Loss for smooth, differentiable L1 approximation
-        turnover = np.sum(np.sqrt((w - prev_w)**2 + 1e-8)) 
+        # Reverted to np.abs to restore L1 sparsity
+        turnover = np.sum(np.abs(w - prev_w)) 
         return tracking_error + lambda_penalty * turnover
         
     # Constraints: Sum(abs(w_i)) <= 1.0 -> 1.0 - sum(abs(w)) >= 0
@@ -133,7 +133,9 @@ def solve_optimization_qp(
     if not res.success:
         logger.warning(f"Optimization failed: {res.message}. Falling back to previous weights.")
         
-    fin_w = np.round(fin_w, 5) # <--- ADD THIS TRUNCATION BEFORE CALCULATING SHARES
+    # If the proposed weight change is less than 1 basis point (0.0001, e.g., $10 on $100k), 
+    # lock it strictly to the previous weight to kill noise-induced micro-churn.
+    fin_w = np.where(np.abs(fin_w - prev_w) < 1e-4, prev_w, fin_w)
         
     # --- EPSILON DEADBAND TRUNCATION & RE-NORMALIZATION ---
     # 1. Truncate absolute floating point garbage to pure 0.0

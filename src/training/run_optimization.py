@@ -312,8 +312,8 @@ def process_day(day_data: dict, rf_rate: float, portfolio: Portfolio, executor: 
         net_holding = previous_holdings.get(t, 0)
         delta_raw = target_net_shares - net_holding
         
-        # Epsilon bias to force deterministic banker's rounding at x.5 boundaries
-        delta = int(round(delta_raw + np.sign(delta_raw) * 1e-9))
+        # Use Double Rounding: Absorbs float noise first, then applies unbiased Banker's rounding
+        delta = int(round(round(delta_raw, 4)))
         price = current_prices.get(t, 0.0)
         
         action = None
