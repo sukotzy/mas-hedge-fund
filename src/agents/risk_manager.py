@@ -149,8 +149,8 @@ def risk_management_agent(state: AgentState, agent_id: str = "risk_management_ag
                 # Drop NaNs just in case
                 series = series.dropna()
                 if len(series) > 0:
-                    avg_corr = float(series.mean())
-                    max_corr = float(series.max())
+                    avg_corr = round(float(series.mean()), 4)
+                    max_corr = round(float(series.max()), 4)
                     corr_metrics["avg_correlation_with_active"] = avg_corr
                     corr_metrics["max_correlation_with_active"] = max_corr
                     # Top 3 most correlated tickers

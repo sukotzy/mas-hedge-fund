@@ -5,6 +5,7 @@ from pydantic import BaseModel, Field
 from typing_extensions import Literal
 from src.utils.progress import progress
 import pandas as pd
+import numpy as np
 from src.tools.api import get_price_data
 from src.utils.optimizer_utils import calculate_optimal_portfolio
 
@@ -132,10 +133,10 @@ def portfolio_management_agent(state: AgentState, agent_id: str = "portfolio_man
             
         target_net_shares = optimal_shares.get(t, 0.0)
         net_holding = previous_holdings.get(t, 0)
-        delta = target_net_shares - net_holding
+        delta_raw = target_net_shares - net_holding
         
-        # We need integer shares
-        delta = int(round(delta))
+        # Epsilon bias to force deterministic banker's rounding at x.5 boundaries
+        delta = int(round(delta_raw + np.sign(delta_raw) * 1e-9))
         
         action = "hold"
         quantity = 0

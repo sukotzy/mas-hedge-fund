@@ -190,9 +190,10 @@ def process_day(day_data: dict, rf_rate: float, portfolio: Portfolio, executor: 
     for t in active_tickers:
         target_net_shares = optimal_shares.get(t, 0.0)
         net_holding = previous_holdings.get(t, 0)
-        delta = target_net_shares - net_holding
+        delta_raw = target_net_shares - net_holding
         
-        delta = int(round(delta))
+        # Epsilon bias to force deterministic banker's rounding at x.5 boundaries
+        delta = int(round(delta_raw + np.sign(delta_raw) * 1e-9))
         price = current_prices.get(t, 0.0)
         
         action = None

@@ -87,6 +87,9 @@ def solve_optimization_qp(
     prev_w = np.zeros(n)
     for i, t in enumerate(tickers):
         prev_w[i] = (previous_holdings.get(t, 0.0) * current_prices.get(t, 0.0)) / portfolio_value
+        
+    target_w = np.round(target_w, 6)
+    prev_w = np.round(prev_w, 6)
             
     # 3. Bounds
     bounds = []
@@ -101,11 +104,14 @@ def solve_optimization_qp(
         else:
             max_w = min(max_w, 1.0) # Cap at 100% max per asset
 
-        bounds.append((-max_w, max_w))
+        bounds.append((-round(max_w, 6), round(max_w, 6)))
         
     # Objective Function
     def objective(w):
-        return np.sum((w - target_w)**2) + lambda_penalty * np.sum(np.abs(w - prev_w))
+        tracking_error = np.sum((w - target_w)**2)
+        # Pseudo-Huber Loss for smooth, differentiable L1 approximation
+        turnover = np.sum(np.sqrt((w - prev_w)**2 + 1e-8)) 
+        return tracking_error + lambda_penalty * turnover
         
     # Constraints: Sum(abs(w_i)) <= 1.0 -> 1.0 - sum(abs(w)) >= 0
     def constraint_gross_exposure(w):
@@ -126,6 +132,8 @@ def solve_optimization_qp(
     fin_w = res.x if res.success else prev_w
     if not res.success:
         logger.warning(f"Optimization failed: {res.message}. Falling back to previous weights.")
+        
+    fin_w = np.round(fin_w, 5) # <--- ADD THIS TRUNCATION BEFORE CALCULATING SHARES
         
     # --- EPSILON DEADBAND TRUNCATION & RE-NORMALIZATION ---
     # 1. Truncate absolute floating point garbage to pure 0.0

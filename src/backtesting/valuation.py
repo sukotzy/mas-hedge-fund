@@ -2,7 +2,8 @@ from __future__ import annotations
 
 from typing import Dict, Mapping, Mapping as _MappingAny
 
-from .portfolio import Portfolio
+from .types import PortfolioSnapshot, PositionState, TickerRealizedGains
+import math
 
 
 def calculate_portfolio_value(portfolio: Portfolio, current_prices: Mapping[str, float]) -> float:
@@ -10,15 +11,16 @@ def calculate_portfolio_value(portfolio: Portfolio, current_prices: Mapping[str,
 
     total_value = cash + market value of longs - market value of shorts
     """
-    total_value = portfolio.get_cash() + portfolio.get_margin_used()
+    components = [portfolio.get_cash(), portfolio.get_margin_used()]
     positions = portfolio.get_positions()
     for ticker, pos in positions.items():
         price = float(current_prices.get(ticker, 0.0))
-        long_value = pos["long"] * price
-        total_value += long_value
+        if pos["long"] > 0:
+            components.append(pos["long"] * price)
         if pos["short"] > 0:
-            total_value -= pos["short"] * price
-    return total_value
+            components.append(-pos["short"] * price)
+            
+    return round(math.fsum(components), 4)
 
 
 def compute_exposures(portfolio: Portfolio, current_prices: Mapping[str, float]) -> Dict[str, float]:
@@ -27,17 +29,23 @@ def compute_exposures(portfolio: Portfolio, current_prices: Mapping[str, float])
     Mirrors the calculations performed in src/backtester.py run loop.
     """
     positions = portfolio.get_positions()
-    long_exposure = 0.0
-    short_exposure = 0.0
+    long_comps = []
+    short_comps = []
+    
     for ticker, pos in positions.items():
         price = float(current_prices.get(ticker, 0.0))
-        long_exposure += pos["long"] * price
-        short_exposure += pos["short"] * price
+        if pos["long"] > 0:
+            long_comps.append(pos["long"] * price)
+        if pos["short"] > 0:
+            short_comps.append(pos["short"] * price)
 
-    gross_exposure = long_exposure + short_exposure
-    net_exposure = long_exposure - short_exposure
+    long_exposure = round(math.fsum(long_comps), 4)
+    short_exposure = round(math.fsum(short_comps), 4)
+
+    gross_exposure = round(long_exposure + short_exposure, 4)
+    net_exposure = round(long_exposure - short_exposure, 4)
     if short_exposure > 1e-9:
-        long_short_ratio = long_exposure / short_exposure
+        long_short_ratio = round(long_exposure / short_exposure, 4)
     else:
         long_short_ratio = float("inf")
 

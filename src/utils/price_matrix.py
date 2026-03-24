@@ -192,7 +192,7 @@ def calculate_risk_limits_fast(
             if comparable:
                 series = correlation_matrix.loc[ticker, comparable].dropna()
                 if len(series) > 0:
-                    avg_corr = float(series.mean())
+                    avg_corr = round(float(series.mean()), 4)
                     corr_multiplier = _correlation_multiplier(avg_corr)
         
         combined_pct = vol_limit_pct * corr_multiplier
