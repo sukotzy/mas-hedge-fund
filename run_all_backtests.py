@@ -2,6 +2,7 @@ import os
 import sys
 import subprocess
 import argparse
+import uuid
 from pathlib import Path
 
 # 确保环境变量正确
@@ -19,7 +20,7 @@ def main():
     parser.add_argument("--initial-cash", type=float, default=100000.0, help="Initial portfolio cash")
     parser.add_argument("--margin-requirement", type=float, default=0.0, help="Margin requirement")
     parser.add_argument("--fast", action="store_true", help="Use pre-loaded PriceMatrix for fast O(1) lookups")
-    parser.add_argument("--agent", type=str, choices=["fundamental", "technical", "valuation", "sentiment"], default=None, help="Run single agent ablation study for a specific agent")
+    parser.add_argument("--agent", type=str, choices=["fundamental", "technical", "valuation", "sentiment", "cash"], default=None, help="Run single agent ablation study for a specific agent")
     parser.add_argument("--disable-risk-manager", action="store_true", help="Disable Risk Manager and allow full allocations")
     parser.add_argument("--turnover-penalty", type=float, default=0.05, help="L1 penalty for turnover in QP optimizer")
     parser.add_argument("--decay-mode", type=str, choices=["none", "soft", "harsh"], default="harsh", help="Configure the kinematic decay speed for legacy positions")
@@ -66,8 +67,9 @@ def main():
         print("⚠️ 警告: 没有在指定目录下找到包含 .jsonl 的实验结果文件夹！")
         return
 
-
-    temp_file = Path("temp_combined_experiment.jsonl")
+    # Use a thread-safe UUID temp file to prevent parallel batch scripts from crashing each other
+    unique_id = uuid.uuid4().hex
+    temp_file = Path(f"temp_combined_experiment_{unique_id}.jsonl")
 
     # 2. 遍历每一个实验组合
     for exp_dir in sorted(experiment_dirs):

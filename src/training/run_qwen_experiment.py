@@ -285,7 +285,8 @@ def main():
                     print(f"\n[{alloc_name.upper()}]")
                     for alloc in dec.get("allocations", []):
                         print(f"  -> {alloc['direction'].upper()} {alloc['ticker']}: {alloc['amount']:.2f}")
-                        print(f"     Reasoning: {alloc['reasoning']}")
+                        reasoning = alloc.get('reasoning', 'N/A')
+                        print(f"     Reasoning: {reasoning}")
                     metric_net = dec.get('metrics', {}).get('original_net_exposure', 0.0)
                     metric_gross = dec.get('metrics', {}).get('original_gross_exposure', 0.0)
                     print(f"  -> Metrics: Net={metric_net:.2f}, Gross={metric_gross:.2f}")

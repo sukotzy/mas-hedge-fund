@@ -270,7 +270,7 @@ def process_day(day_data: dict, rf_rate: float, portfolio: Portfolio, executor: 
 
 def main():
     parser = argparse.ArgumentParser(description="Run Single-Agent Backtest (Ablation Study)")
-    parser.add_argument("--agent", type=str, required=True, choices=["fundamental", "technical", "valuation", "sentiment"], help="Specific agent to evaluate")
+    parser.add_argument("--agent", type=str, required=True, choices=["fundamental", "technical", "valuation", "sentiment", "cash"], help="Specific agent to evaluate")
     parser.add_argument("--input-file", type=str, default="data/enriched_decisions.jsonl")
     parser.add_argument("--output-file", type=str, help="Will default to data/optimization_results_{agent}.jsonl")
     parser.add_argument("--initial-cash", type=float, default=100000.0)
