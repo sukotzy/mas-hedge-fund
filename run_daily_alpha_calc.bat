@@ -1,9 +1,0 @@
-python evaluate_daily_alpha.py --input-file data/daily_alpha_raw/deepseek_standard_hint_9yr_zh_with_hint_standard_sentiment.jsonl
-
-python evaluate_daily_alpha.py --input-file data/daily_alpha_raw/deepseek_standard_hint_9yr_zh_with_hint_standard_fundamental.jsonl
-
-python evaluate_daily_alpha.py --input-file data/daily_alpha_raw/deepseek_standard_hint_9yr_zh_with_hint_standard_technical.jsonl
-
-python evaluate_daily_alpha.py --input-file data/daily_alpha_raw/deepseek_standard_hint_9yr_zh_with_hint_standard_valuation.jsonl
-
-python src/plot_alpha_comparison.py --files data/daily_alpha_raw/deepseek_standard_hint_9yr_zh_with_hint_standard_fundamental.jsonl data/daily_alpha_raw/deepseek_standard_hint_9yr_zh_with_hint_standard_technical.jsonl data/daily_alpha_raw/deepseek_standard_hint_9yr_zh_with_hint_standard_valuation.jsonl data/daily_alpha_raw/deepseek_standard_hint_9yr_zh_with_hint_standard_sentiment.jsonl --labels Fundamental Technical Valuation Sentiment --output pure_alpha_comparison.png

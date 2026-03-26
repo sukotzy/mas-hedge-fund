@@ -62,5 +62,9 @@ poetry.lock
 安装req.txt
 # requirements0.txt  # Uncommented to allow this file
 backtest_history.json
-
-
+# Local testing scripts and plots
+*.bat
+*.png
+plots/
+plot_*.py
+src/testing_scripts/
