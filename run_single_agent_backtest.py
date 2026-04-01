@@ -270,6 +270,9 @@ def process_day(day_data: dict, rf_rate: float, portfolio: Portfolio, executor: 
 
 def main():
     parser = argparse.ArgumentParser(description="Run Single-Agent Backtest (Ablation Study)")
+    parser.add_argument("--active-agents", nargs='+', default=["fundamental", "technical", "valuation", "sentiment", "virtual_cash"], help="List of active agents participating in the Meta Manager")
+    parser.add_argument("--start-date", type=str, default=None, help="Backtest start date (YYYY-MM-DD)")
+    parser.add_argument("--end-date", type=str, default=None, help="Backtest end date (YYYY-MM-DD)")
     parser.add_argument("--agent", type=str, required=True, choices=["fundamental", "technical", "valuation", "sentiment", "cash"], help="Specific agent to evaluate")
     parser.add_argument("--input-file", type=str, default="data/enriched_decisions.jsonl")
     parser.add_argument("--output-file", type=str, help="Will default to data/optimization_results_{agent}.jsonl")
@@ -278,7 +281,7 @@ def main():
     parser.add_argument("--disable-risk-manager", action="store_true", help="Disable Risk Manager")
     parser.add_argument("--fast", action="store_true", help="Use pre-loaded PriceMatrix")
     parser.add_argument("--turnover-penalty", type=float, default=0.05, help="L1 penalty for turnover in QP optimizer")
-    parser.add_argument("--decay-mode", type=str, choices=["none", "soft", "harsh"], default="harsh", help="Configure the kinematic decay speed for legacy positions")
+    parser.add_argument("--decay-mode", type=str, choices=["none", "soft", "harsh", "panic_soft_decay_harsh", "panic_harsh_decay_soft", "panic_08_decay_harsh", "panic_08_decay_soft"], default="harsh", help="Configure the kinematic decay speed for legacy positions")
     parser.add_argument("--segregate-capital", type=float, default=0.0, help="Ratio (0.0 to 1.0) of capital to allocate to fresh signals vs old decayed holdings. 0.0 disables segregation.")
     parser.add_argument("--transfer-rate", type=float, default=1.0, help="Multiplier for the zero-sum capital transfer penalty/reward.")
     parser.add_argument("--enable-smoothing", action="store_true", help="Enable EMA smoothing for alpha and capital floor protection in the betting market.")

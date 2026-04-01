@@ -310,7 +310,10 @@ def process_day_selection_only(
     previous_consensus: dict,
     previous_prices: dict,
     price_matrix: PriceMatrix,
-    disable_risk_manager: bool = False
+    disable_risk_manager: bool = False,
+    turnover_penalty: float = 0.05,
+    decay_mode: str = "soft",
+    segregate_capital: float = 0.1
 ):
     """
     Process a single day using selection-only consensus.
@@ -380,7 +383,10 @@ def process_day_selection_only(
         risk_limits=risk_limits,
         initial_capital=current_portfolio_value,
         risk_free_rate=rf_rate,
-        use_risk_manager=not disable_risk_manager
+        use_risk_manager=not disable_risk_manager,
+        turnover_penalty=turnover_penalty,
+        decay_mode=decay_mode,
+        segregate_capital=segregate_capital
     )
     
     # 8. Execute Delta Trades
@@ -456,6 +462,9 @@ def main():
     parser.add_argument("--initial-cash", type=float, default=100000.0, help="Initial portfolio cash")
     parser.add_argument("--margin-requirement", type=float, default=0.5, help="Margin requirement")
     parser.add_argument("--disable-risk-manager", action="store_true", help="Disable Risk Manager")
+    parser.add_argument("--turnover-penalty", type=float, default=0.05, help="Turnover penalty")
+    parser.add_argument("--decay-mode", type=str, default="no_decay", help="Decay mode")
+    parser.add_argument("--segregate-capital", type=float, default=0.0, help="Segregated capital")
     args = parser.parse_args()
 
     input_path = Path(args.input_file)
@@ -536,7 +545,10 @@ def main():
                     previous_consensus=previous_consensus,
                     previous_prices=previous_prices,
                     price_matrix=price_matrix,
-                    disable_risk_manager=args.disable_risk_manager
+                    disable_risk_manager=args.disable_risk_manager,
+                    turnover_penalty=args.turnover_penalty,
+                    decay_mode=args.decay_mode,
+                    segregate_capital=args.segregate_capital
                 )
                 
                 # Write IMMEDIATELY to prevents results list from growing too large

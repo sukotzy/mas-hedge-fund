@@ -23,7 +23,7 @@ def main():
     parser.add_argument("--agent", type=str, choices=["fundamental", "technical", "valuation", "sentiment", "cash"], default=None, help="Run single agent ablation study for a specific agent")
     parser.add_argument("--disable-risk-manager", action="store_true", help="Disable Risk Manager and allow full allocations")
     parser.add_argument("--turnover-penalty", type=float, default=0.05, help="L1 penalty for turnover in QP optimizer")
-    parser.add_argument("--decay-mode", type=str, choices=["none", "soft", "harsh"], default="harsh", help="Configure the kinematic decay speed for legacy positions")
+    parser.add_argument("--decay-mode", type=str, choices=["none", "soft", "harsh", "panic_soft_decay_harsh", "panic_harsh_decay_soft", "panic_08_decay_harsh", "panic_08_decay_soft"], default="harsh", help="Configure the kinematic decay speed for legacy positions")
     parser.add_argument("--segregate-capital", type=float, default=0.0, help="Ratio (0.0 to 1.0) of capital to allocate to fresh signals vs old decayed holdings. 0.0 disables segregation.")
     parser.add_argument("--transfer-rate", type=float, default=1.0, help="Multiplier for the zero-sum capital transfer penalty/reward.")
     parser.add_argument("--enable-smoothing", action="store_true", help="Enable EMA smoothing for alpha and capital floor protection in the betting market.")
@@ -36,6 +36,8 @@ def main():
     parser.add_argument("--rd-eta-downside", type=float, default=None, help="Exponential amplifier for severe negative alpha (Downside Risk Aversion). Defaults to symmetric rd-eta if not provided.")
     parser.add_argument("--rd-eta-downside-threshold", type=float, default=-0.02, help="Alpha threshold to trigger the downside eta amplifier.")
     parser.add_argument("--active-agents", nargs='+', default=["fundamental", "technical", "valuation", "sentiment", "virtual_cash"], help="List of active agents participating in the Meta Manager")
+    parser.add_argument("--start-date", type=str, default=None, help="Backtest start date (YYYY-MM-DD)")
+    parser.add_argument("--end-date", type=str, default=None, help="Backtest end date (YYYY-MM-DD)")
     
     args = parser.parse_args()
 
@@ -131,6 +133,10 @@ def main():
                 "--margin-requirement", str(args.margin_requirement)
             ]
         
+        if args.start_date:
+            cmd.extend(["--start-date", args.start_date])
+        if args.end_date:
+            cmd.extend(["--end-date", args.end_date])
         if args.fast:
             cmd.append("--fast")
         if args.disable_risk_manager:

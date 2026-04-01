@@ -1,104 +1,108 @@
-# Multi-Agent System (MAS) Hedge Fund
+# Master Thesis: Development of a MAS Hedge Fund - Replication Codebase
 
-An advanced AI-driven hedge fund architecture that leverages a **Multi-Agent System** to perform autonomous market analysis, portfolio construction, and trading. The system mimics a real-world institutional fund structure with specialized agents (Fundamental, Technical, Risk, Sentiment, Valuation) working in concert.
-
-## 🏗 System Architecture
-
-The architecture is divided into three main stages: **Selection (The Funnel)**, **Deliberation (The Brain)**, and **Execution (The Action)**.
-
----
-
-### 1. Data Selection Layer (The "Funnel")
-
-*Solves the "Compute Efficiency Paradox" by pre-filtering the S&P 500 down to 3-5 high-potential candidates using market physics.*
-
-#### **Layer 1: Market Regime & Topology (The "30+30 Rule")**
-*   **Regime Detection**: Uses **Minimum Spanning Tree (MST)** & **Normalized Tree Length (NTL)** to classify the market state (Contraction/Expansion).
-*   **The "30+30" Candidate Pool**:
-    *   **Group A (Topology)**: Selects the top 15 **Hubs** (High Degree Centrality, "Too Big to Fail") and top 15 **Leaves** (Low Degree Centrality, likely idiosyncratic movers) from the MST.
-    *   **Group B (Anomalies)**: Uses **Isolation Forest** to identify the top 30 stocks with "structural breaks" (unusual price/volume behavior).
-    *   **Result**: A combined universe of ~60 candidates passed to Layer 2.
-
-#### **Layer 2: Dual-Track Scoring & Panic Detection**
-*   **Clustering**: Groups filtered candidates into 5 statistically distinct clusters to ensure diversity.
-*   **Panic Score**: Identifies Crash Risks using Volume + Price Physics.
-    $$PanicScore = Volratio \times |Ret| \times 100$$
-    *(Triggered only if $Ret < 0$)*
-*   **Dual-Track Scoring**:
-    Each candidate is evaluated on two tracks simultaneously:
-    1.  **Long Track** (Trend Following):
-        $$Score_{Long} = 0.6 \cdot Momentum + 0.4 \cdot (1 - AnomalyScore)$$
-    2.  **Short Track** (Risk/Crash):
-        $$Score_{Short} = 0.3 \cdot |Momentum| + 0.3 \cdot AnomalyScore + 0.2 \cdot Centrality + 0.2 \cdot PanicScore$$
-*   **Final Decision**:
-    *   The system compares the best *Long* vs. *Short* candidate in each cluster.
-    *   **Short Condition**: If $Score_{Short} > Score_{Long} \times 1.1$, the system routes a **SHORT** task.
-    *   Else, it routes a **LONG** task.
-
-#### **🧪 A/B Testing: The "Hint" Toggle**
-To benchmark the reasoning capabilities of the AI agents, the selection layer supports two modes:
-1.  **With Hint (Default)** (`include_hint=True`): The system explicitly passes the recommended direction (`Long` or `Short`) and the specific reason (e.g., "High Anomaly Score") to the agents.
-2.  **Blind Mode** (`include_hint=False`): The system provides only a neutral `Analyze` instruction. This forces the agents to derive the direction purely from their own analysis, allowing you to test if they can independently identify the opportunity/risk.
+**Author:** Zhiyi Tang (zhiyi.tang@uzh.ch)
+**Institution:** University of Zurich (UZH) / ETH Zurich
+**Degree:** Master of Science in Quantitative Finance
+**Supervisor:** Prof. Dr. Markus Leippold
 
 ---
 
-### 2. Multi-Agent Deliberation (The "Brain")
+## 📖 Project Overview
 
-*Selected assets are analyzed by a committee of specialized "Asset Allocators" (LLM Agents).*
+This repository contains the complete software implementation for the Master's Thesis: **"Development of a Multi-Agent System Hedge Fund"**. 
 
-#### **Diverse Analyst Personas**
-Each agent specializes in a distinct source of alpha:
-*   **Fundamental Analyst**: Deep dives into financial statements, moats, and competitive advantage (Buffett-style).
-*   **Technical Analyst**: Analyzes price action, trends, and support/resistance levels.
-*   **Valuation Analyst**: Focuses on DCF models and intrinsic value gaps.
-*   **Sentiment Analyst**: Gauges market psychology from news and social signals.
+The system implements a hybrid Quant-AI architecture, bridging Large Language Model (LLM) reasoning with quantitative execution. 
 
-#### **🧪 A/B Testing: Prompt Strategies**
-The agents can be initialized with different cognitive prompts to test behavioral economics theories:
-1.  **Standard Prompt**: The agent simply analyzes the asset to maximize accuracy.
-2.  **Wealth Impact Prompt** ("Skin in the Game"): The agent is explicitly told that **their own internal capital**—and thus their future influence in the fund—depends on the outcome of this specific bet. This tests if "financial survival instinct" improves decision quality.
-
-#### **Prediction Market Mechanism**
-Instead of a simple "Vote", agents participate in an internal **Betting Market**.
-*   **Belief as Capital**: Agents invest their allocated capital into outcomes: `Up`, `Neutral`, or `Down`.
-*   **Conviction Sizing**: High conviction = Larger bet.
-*   **Fair Price Discovery**: The aggregation of all agent bets forms a "Market Implied Fair Price" for the asset, synthesizing all diverse views into a single signal.
-
-#### **Dual-Tranche Capital System**
-Agents are incentivized through two capital pools:
-1.  **Internal Capital (Meritocratic)**: Agents accumulate capital by making winning bets. Successful agents gain more influence (voting power) over time.
-2.  **External Capital (Top-Down)**: Allocated by the **Meta Manager**.
-    *   **Meta Manager**: A supervisor agent that dynamically shifts capital based on the Market Regime (e.g., funding the *Short Seller* and *Risk Manager* during a Crisis, or the *Technical Analyst* during a Bull Run). *(Note: Currently implemented rule-based, training in progress)*.
+### Key Architectural Layers:
+* **Quantitative Pre-selection:** Noise filtering via RMT and MST topology.
+* **Decision Layer:** Multi-agent Prediction Market (Fundamental, Valuation, Technical, Sentiment).
+* **Execution Layer:** Bimodal Kinematic Decay and L1-regularized Quadratic Programming (QP).
 
 ---
 
-### 3. Execution & Risk (The "Action")
+## ⚠️ Data Disclaimer & Reproducibility Note
 
-*   **Portfolio Construction**: The final "Fair Price" from the betting market is fed into an optimizer.
-*   **Risk Constraints**: The optimizer strictly adheres to volatility limits, leverage caps, and sector exposure limits before generating final trade orders.
+**Please read this before attempting to run the backtests.**
+
+Due to platform upload restrictions (OLAT file size limits), the complete directory of generated experiment logs, daily backtest trajectories, and kinematic state records (which cumulatively exceed **10 GB**) has been **intentionally excluded** from this archive.
+
+### How to Reproduce Results:
+* **LLM Decision Data:** I have provided the pre-cached **LLM Agent Decision Data** in the `data/` directory. This contains the raw cognitive outputs and allocations generated by the models.
+* **Deterministic Replication:** By utilizing these cached decisions, you can fully and deterministically reproduce all 9-year longitudinal backtest results, ablation studies, and final equity curves presented in Chapter 6 and Appendix C without needing to call expensive LLM APIs.
+* **Full Run:** To regenerate the 10GB+ log files, simply execute the `run_all_backtests.py` script.
 
 ---
 
-## 🚀 Getting Started
+## 📂 Repository Structure
 
-### Prerequisites
-- Python 3.12+
-- WRDS Account (for institutional quality data)
-- OpenAI API Key
+* `app/` - Core application logic and API interfaces
+* `src/` - Main engine (Quant filtering, MAS settlement)
+* `model_strategy_selection/` - Logic for agent weight evolution (LTS protocol)
+* `data/` - Market data and pre-computed LLM decisions
+* `tests/` - Unit tests for mathematical stability
+* `run_all_backtests.py` - Master script for end-to-end 9-year replication
+* `run_tr_experiments.bat` - Replicates Transfer Rate ablation (LTS intensity)
+* `run_segcap_experiments_rate005.bat` - Replicates Segregated Capital Ratio ablation
+* `run_ablation_loss_aversion.bat` - Replicates Stage I cognitive calibration
+* `evaluate_daily_alpha.py` - Calculates predictive hit rates and payoff ratios
+* `generate_thesis_plots.bat` - Script used to generate figures for the thesis
+* `requirements.txt` - Dependency list
+* `DATA_GUIDE.md` - Detailed schema of the input data
 
-### Installation
+---
 
-```bash
-# Clone the repository
-git clone https://github.com/YourUsername/mas-hedge-fund.git
+## 🚀 Setup & Installation
 
-# Install dependencies
-pip install -r requirements.txt
-```
+### 1. Prerequisites
+* **Python:** 3.10 or higher
+* **Hardware:** At least 16GB RAM recommended for processing large-scale backtest arrays.
 
-### Running the Selection Pipeline
+### 2. Environment Setup
+It is highly recommended to use a virtual environment:
 
-```bash
-# Run verification script with a specific date
-python -m src.testing_scripts.test_selection_layer --date 2023-01-04
-```
+1. Create and activate a virtual environment:
+   `python -m venv venv`
+   `source venv/bin/activate` (On Windows use: `venv\Scripts\activate`)
+2. Install dependencies:
+   `pip install -r requirements.txt`
+
+### 3. API Configuration (Optional)
+If you wish to generate *new* LLM decisions instead of using the cached data:
+1. Rename `.env.example` to `.env`.
+2. Enter your OpenAI or DeepSeek API keys.
+
+---
+
+## 📊 Replication Guide
+
+### Primary Backtest (Chapter 6.6)
+To replicate the n-year performance of different MAS architectures:
+`python run_all_backtests.py` with different parameters.
+
+#### Engine Parameters (`run_all_backtests.py`)
+The master script supports extensive parametrizations for custom experimental setups:
+* `--base-dirs` : Root directories containing `.jsonl` LLM agent decision files.
+* `--out-dir` / `--out-name` : Output mapping logic for the executed backtest arrays.
+* `--fast` : Enables O(1) in-memory price matrix lookups (recommended for bulk runs).
+* `--agent` : Execute an isolated baseline backtest restricted to a single agent (e.g., `fundamental`).
+* `--transfer-rate` : Multiplier controlling the Darwinian zero-sum penalty severity for inaccurate predictions.
+* `--segregate-capital` : Ratio bounding the segregation of new capital vs. legacy holding liquidations ($0.0 - 1.0$).
+* `--decay-mode` : The bimodal kinematic decay formulation to apply (`soft`, `harsh`, `panic_soft_decay_harsh`, etc.).
+* `--use-replicator-dynamics` : Trigger the Replicator Dynamics equation (LTS protocol) for settlement.
+* `--rd-eta` / `--rd-tau` : Learning rate ($\eta$) and Uniform Mutation Rate ($\tau$).
+* `--enable-smoothing` / `--enable-safety-net` : Toggles for equity curve safety modifiers and moving average floors.
+* `--start-date` / `--end-date` : Optional time-bounding filters (`YYYY-MM-DD`).
+
+### Cognitive Calibration (Chapter 6.1)
+To replicate the behavioral analysis under macro-stress:
+`./run_ablation_loss_aversion.bat`
+
+### Ablation Studies (Chapter 6.4 - 6.5)
+To reproduce the sensitivity analysis regarding zero-sum intensity and capital segregation:
+`./run_tr_experiments.bat`
+`./run_segcap_experiments_rate005.bat`
+
+---
+*For further inquiries regarding the implementation or data schema, please contact the author.*
+
+*End of Document*

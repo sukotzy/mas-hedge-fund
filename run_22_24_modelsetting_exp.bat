@@ -1,0 +1,29 @@
+python run_all_backtests.py --base-dirs data/deepseek_standard_hint_9yr_zh --out-dir data/22_24_exp --fast --turnover-penalty 0.05 --decay-mode soft --segregate-capital 0.2 --enable-smoothing --transfer-rate 1.0 --active-agents fundamental technical sentiment valuation --out-name rate005_soft_decay_segcap20_smooth_dshw.jsonl --start-date 2022-01-01 --end-date 2024-12-31
+python run_all_backtests.py --base-dirs data/deepseek_standard_hint_9yr_zh --out-dir data/22_24_exp --fast --turnover-penalty 0.05 --decay-mode soft --segregate-capital 0.2 --enable-smoothing --transfer-rate 1.0 --out-name rate005_soft_decay_segcap20_smooth_dshw_wcash.jsonl --start-date 2022-01-01 --end-date 2024-12-31
+
+python run_all_backtests.py --base-dirs data/deepseek_standard_hint_9yr_zh --out-dir data/22_24_exp --fast --turnover-penalty 0.05 --decay-mode soft --segregate-capital 0.1 --enable-smoothing --transfer-rate 1.0 --active-agents fundamental technical sentiment valuation --out-name rate005_soft_decay_segcap10_smooth_dshw.jsonl --start-date 2022-01-01 --end-date 2024-12-31
+python run_all_backtests.py --base-dirs data/deepseek_standard_hint_9yr_zh --out-dir data/22_24_exp --fast --turnover-penalty 0.05 --decay-mode soft --segregate-capital 0.1 --enable-smoothing --transfer-rate 1.0 --out-name rate005_soft_decay_segcap10_smooth_dshw_wcash.jsonl --start-date 2022-01-01 --end-date 2024-12-31
+
+python run_all_backtests.py --base-dirs data\results_deepseek_3yrs_nohint_wealth --out-dir data/22_24_exp --fast --turnover-penalty 0.05 --decay-mode soft --segregate-capital 0.2 --enable-smoothing --transfer-rate 1.0 --active-agents fundamental technical sentiment valuation --out-name rate005_soft_decay_segcap20_smooth_dsnhw.jsonl --start-date 2022-01-01 --end-date 2024-12-31
+python run_all_backtests.py --base-dirs data\results_deepseek_3yrs_nohint_wealth --out-dir data/22_24_exp --fast --turnover-penalty 0.05 --decay-mode soft --segregate-capital 0.2 --enable-smoothing --transfer-rate 1.0 --out-name rate005_soft_decay_segcap20_smooth_dsnhw_wcash.jsonl --start-date 2022-01-01 --end-date 2024-12-31
+
+python run_all_backtests.py --base-dirs data\results_deepseek_3yrs_nohint_wealth --out-dir data/22_24_exp --fast --turnover-penalty 0.05 --decay-mode soft --segregate-capital 0.1 --enable-smoothing --transfer-rate 1.0 --active-agents fundamental technical sentiment valuation --out-name rate005_soft_decay_segcap10_smooth_dsnhw.jsonl --start-date 2022-01-01 --end-date 2024-12-31
+python run_all_backtests.py --base-dirs data\results_deepseek_3yrs_nohint_wealth --out-dir data/22_24_exp --fast --turnover-penalty 0.05 --decay-mode soft --segregate-capital 0.1 --enable-smoothing --transfer-rate 1.0 --out-name rate005_soft_decay_segcap10_smooth_dsnhw_wcash.jsonl --start-date 2022-01-01 --end-date 2024-12-31
+
+python run_all_backtests.py --base-dirs data\results_qwen_3yrs_withhint_wealth --out-dir data/22_24_exp --fast --turnover-penalty 0.05 --decay-mode soft --segregate-capital 0.2 --enable-smoothing --transfer-rate 1.0 --active-agents fundamental technical sentiment valuation --out-name rate005_soft_decay_segcap20_smooth_qwhw.jsonl --start-date 2022-01-01 --end-date 2024-12-31
+python run_all_backtests.py --base-dirs data\results_qwen_3yrs_withhint_wealth --out-dir data/22_24_exp --fast --turnover-penalty 0.05 --decay-mode soft --segregate-capital 0.2 --enable-smoothing --transfer-rate 1.0 --out-name rate005_soft_decay_segcap20_smooth_qwhw_wcash.jsonl --start-date 2022-01-01 --end-date 2024-12-31
+
+python run_all_backtests.py --base-dirs data\results_qwen_3yrs_withhint_wealth --out-dir data/22_24_exp --fast --turnover-penalty 0.05 --decay-mode soft --segregate-capital 0.1 --enable-smoothing --transfer-rate 1.0 --active-agents fundamental technical sentiment valuation --out-name rate005_soft_decay_segcap10_smooth_qwhw.jsonl --start-date 2022-01-01 --end-date 2024-12-31
+python run_all_backtests.py --base-dirs data\results_qwen_3yrs_withhint_wealth --out-dir data/22_24_exp --fast --turnover-penalty 0.05 --decay-mode soft --segregate-capital 0.1 --enable-smoothing --transfer-rate 1.0 --out-name rate005_soft_decay_segcap10_smooth_qwhw_wcash.jsonl --start-date 2022-01-01 --end-date 2024-12-31
+
+:: 4. Plot The Ultimate Dual-Panel Comparison (6 Lines per Panel)
+python src/plot_alpha_comparison.py ^
+  --benchmark "^GSPC" ^
+  --suptitle "" ^
+  --files data\22_24_exp\rate005_soft_decay_segcap20_smooth_dshw.jsonl data\22_24_exp\rate005_soft_decay_segcap10_smooth_dshw.jsonl data\22_24_exp\rate005_soft_decay_segcap20_smooth_dsnhw.jsonl data\22_24_exp\rate005_soft_decay_segcap10_smooth_dsnhw.jsonl data\22_24_exp\rate005_soft_decay_segcap20_smooth_qwhw.jsonl data\22_24_exp\rate005_soft_decay_segcap10_smooth_qwhw.jsonl ^
+  --labels "DeepSeek (Hint, 20%% $\kappa_{segregate}$)" "DeepSeek (Hint, 10%% $\kappa_{segregate}$)" "DeepSeek (No Hint, 20%% $\kappa_{segregate}$)" "DeepSeek (No Hint, 10%% $\kappa_{segregate}$)" "Qwen (Hint, 20%% $\kappa_{segregate}$)" "Qwen (Hint, 10%% $\kappa_{segregate}$)" ^
+  --titles "Panel A: 4-Agent Framework (Without Virtual Cash Haven)" ^
+  --files data\22_24_exp\rate005_soft_decay_segcap20_smooth_dshw_wcash.jsonl data\22_24_exp\rate005_soft_decay_segcap10_smooth_dshw_wcash.jsonl data\22_24_exp\rate005_soft_decay_segcap20_smooth_dsnhw_wcash.jsonl data\22_24_exp\rate005_soft_decay_segcap10_smooth_dsnhw_wcash.jsonl data\22_24_exp\rate005_soft_decay_segcap20_smooth_qwhw_wcash.jsonl data\22_24_exp\rate005_soft_decay_segcap10_smooth_qwhw_wcash.jsonl ^
+  --labels "DeepSeek (Hint, 20%% $\kappa_{segregate}$)" "DeepSeek (Hint, 10%% $\kappa_{segregate}$)" "DeepSeek (No Hint, 20%% $\kappa_{segregate}$)" "DeepSeek (No Hint, 10%% $\kappa_{segregate}$)" "Qwen (Hint, 20%% $\kappa_{segregate}$)" "Qwen (Hint, 10%% $\kappa_{segregate}$)" ^
+  --titles "Panel B: 5-Agent Framework (With Virtual Cash Haven)" ^
+  --output plots/model_setting_segcap_comparison_22_24.png

@@ -415,7 +415,7 @@ def main():
     parser.add_argument("--disable-risk-manager", action="store_true", help="Disable Risk Manager and allow full allocations")
     parser.add_argument("--fast", action="store_true", help="Use pre-loaded PriceMatrix for O(1) lookups (much faster for long backtests)")
     parser.add_argument("--turnover-penalty", type=float, default=0.05, help="L1 penalty for turnover in QP optimizer")
-    parser.add_argument("--decay-mode", type=str, choices=["none", "soft", "harsh"], default="harsh", help="Configure the kinematic decay speed for legacy positions")
+    parser.add_argument("--decay-mode", type=str, choices=["none", "soft", "harsh", "panic_soft_decay_harsh", "panic_harsh_decay_soft", "panic_08_decay_harsh", "panic_08_decay_soft"], default="harsh", help="Configure the kinematic decay speed for legacy positions")
     parser.add_argument("--segregate-capital", type=float, default=0.0, help="Ratio (0.0 to 1.0) of capital to allocate to fresh signals vs old decayed holdings. 0.0 disables segregation.")
     parser.add_argument("--transfer-rate", type=float, default=1.0, help="Multiplier for the zero-sum capital transfer penalty/reward.")
     parser.add_argument("--enable-smoothing", action="store_true", help="Enable EMA smoothing for alpha and capital floor protection in the betting market.")
@@ -428,6 +428,8 @@ def main():
     parser.add_argument("--rd-eta-downside", type=float, default=None, help="Exponential amplifier for severe negative alpha (Downside Risk Aversion). Defaults to symmetric rd-eta if not provided.")
     parser.add_argument("--rd-eta-downside-threshold", type=float, default=-0.02, help="Alpha threshold to trigger the downside eta amplifier.")
     parser.add_argument("--active-agents", nargs='+', default=["fundamental", "technical", "valuation", "sentiment", "virtual_cash"], help="List of active agents participating in the Meta Manager")
+    parser.add_argument("--start-date", type=str, default=None, help="Backtest start date in YYYY-MM-DD format (inclusive)")
+    parser.add_argument("--end-date", type=str, default=None, help="Backtest end date in YYYY-MM-DD format (inclusive)")
     args = parser.parse_args()
 
     input_file = Path(args.input_file)
@@ -494,6 +496,10 @@ def main():
                 try:
                     day_data = json.loads(line)
                     date_str = day_data.get('date')
+                    
+                    if args.start_date and date_str < args.start_date: continue
+                    if args.end_date and date_str > args.end_date: continue
+                        
                     rf_rate = get_dynamic_rf_rate(date_str, rf_df)
                     
                     # Pure functional optimization pass over state

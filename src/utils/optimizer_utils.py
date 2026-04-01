@@ -280,6 +280,102 @@ def calculate_optimal_portfolio(
                                     else:
                                         decay_factor = 0.90
                                         
+                            elif decay_mode == "panic_soft_decay_harsh":
+                                cond_A_long = holding_weight > WEIGHT_EPSILON and price_delta_1d <= -0.20
+                                cond_A_short = holding_weight < -WEIGHT_EPSILON and price_delta_1d >= 0.20
+                                
+                                if cond_A_long or cond_A_short:
+                                    decay_factor = 0.0
+                                else:
+                                    if holding_weight * price_delta_3d > WEIGHT_EPSILON:
+                                        decay_factor = 0.95  # Tailwind Soft Landing
+                                    elif holding_weight * price_delta_3d < -WEIGHT_EPSILON:
+                                        is_long = holding_weight > WEIGHT_EPSILON
+                                        if is_long:
+                                            accel = (R_t_minus_1 < R_t_minus_2) and (R_t_minus_2 < 0)
+                                        else:
+                                            accel = (R_t_minus_1 > R_t_minus_2) and (R_t_minus_2 > 0)
+                                            
+                                        if accel:
+                                            decay_factor = 0.50  # Headwind Acceleration
+                                        else:
+                                            decay_factor = 0.85  # Headwind Deceleration
+                                    else:
+                                        decay_factor = 0.85
+                                        
+                            elif decay_mode == "panic_harsh_decay_soft":
+                                cond_A_long = holding_weight > WEIGHT_EPSILON and price_delta_1d <= -0.08
+                                cond_A_short = holding_weight < -WEIGHT_EPSILON and price_delta_1d >= 0.08
+                                
+                                prev_ma5 = np.mean(closes[-6:-1])
+                                cond_B_long = holding_weight > WEIGHT_EPSILON and (latest_close < ma5) and (prev_close_1 < prev_ma5)
+                                cond_B_short = holding_weight < -WEIGHT_EPSILON and (latest_close > ma5) and (prev_close_1 > prev_ma5)
+                                
+                                if cond_A_long or cond_A_short or cond_B_long or cond_B_short:
+                                    decay_factor = 0.0
+                                else:
+                                    if holding_weight * price_delta_3d > WEIGHT_EPSILON:
+                                        decay_factor = 0.98  # Tailwind Soft Landing
+                                    elif holding_weight * price_delta_3d < -WEIGHT_EPSILON:
+                                        is_long = holding_weight > WEIGHT_EPSILON
+                                        if is_long:
+                                            accel = (R_t_minus_1 < R_t_minus_2) and (R_t_minus_2 < 0)
+                                        else:
+                                            accel = (R_t_minus_1 > R_t_minus_2) and (R_t_minus_2 > 0)
+                                            
+                                        if accel:
+                                            decay_factor = 0.70  # Headwind Acceleration
+                                        else:
+                                            decay_factor = 0.90  # Headwind Deceleration
+                                    else:
+                                        decay_factor = 0.90
+                                    
+                            elif decay_mode == "panic_08_decay_harsh":
+                                cond_A_long = holding_weight > WEIGHT_EPSILON and price_delta_1d <= -0.08
+                                cond_A_short = holding_weight < -WEIGHT_EPSILON and price_delta_1d >= 0.08
+                                
+                                if cond_A_long or cond_A_short:
+                                    decay_factor = 0.0
+                                else:
+                                    if holding_weight * price_delta_3d > WEIGHT_EPSILON:
+                                        decay_factor = 0.95
+                                    elif holding_weight * price_delta_3d < -WEIGHT_EPSILON:
+                                        is_long = holding_weight > WEIGHT_EPSILON
+                                        if is_long:
+                                            accel = (R_t_minus_1 < R_t_minus_2) and (R_t_minus_2 < 0)
+                                        else:
+                                            accel = (R_t_minus_1 > R_t_minus_2) and (R_t_minus_2 > 0)
+                                            
+                                        if accel:
+                                            decay_factor = 0.50
+                                        else:
+                                            decay_factor = 0.85
+                                    else:
+                                        decay_factor = 0.85
+                                        
+                            elif decay_mode == "panic_08_decay_soft":
+                                cond_A_long = holding_weight > WEIGHT_EPSILON and price_delta_1d <= -0.08
+                                cond_A_short = holding_weight < -WEIGHT_EPSILON and price_delta_1d >= 0.08
+                                
+                                if cond_A_long or cond_A_short:
+                                    decay_factor = 0.0
+                                else:
+                                    if holding_weight * price_delta_3d > WEIGHT_EPSILON:
+                                        decay_factor = 0.98
+                                    elif holding_weight * price_delta_3d < -WEIGHT_EPSILON:
+                                        is_long = holding_weight > WEIGHT_EPSILON
+                                        if is_long:
+                                            accel = (R_t_minus_1 < R_t_minus_2) and (R_t_minus_2 < 0)
+                                        else:
+                                            accel = (R_t_minus_1 > R_t_minus_2) and (R_t_minus_2 > 0)
+                                            
+                                        if accel:
+                                            decay_factor = 0.70
+                                        else:
+                                            decay_factor = 0.90
+                                    else:
+                                        decay_factor = 0.90
+                                        
                             elif decay_mode == "harsh":
                                 # Original Harsh Mode
                                 cond_A_long = holding_weight > WEIGHT_EPSILON and price_delta_1d <= -0.08
